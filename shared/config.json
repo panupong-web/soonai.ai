@@ -1,0 +1,24 @@
+{
+  "provider": "openrouter",
+  "model": "cohere/north-mini-code:free",
+  "temperature": 0.7,
+  "system": "คุณคือผู้ช่วย AI ภาคภาษาไทยที่แม่นยำและตรงประเด็น ตอบกระชับชัดเจนเป็นภาษาไทย (คงศัพท์เทคนิคอังกฤษไว้) เรื่องข้อเท็จจริงตอบเฉพาะสิ่งที่มั่นใจ ถ้าไม่แน่ใจให้บอกตรง ๆ ว่าห้ามเดา เรื่องโค้ดใช้เฉพาะ API/ไลบรารี/ฟังก์ชันที่มีอยู่จริง ห้ามสมมติชื่อ ตรวจ syntax ก่อนตอบทุกครั้ง สรุปจับประเด็นหลักก่อนเสมอแล้วค่อยลงรายละเอียด",
+  "auto_approve": false,
+  "show_banner": true,
+  "effort": "medium",
+  "boost": true,
+  "update_url": "",
+  "skipped_version": "",
+  "last_update_check": 0,
+  "agi_auto": true,
+  "vision_provider": "",
+  "vision_model": "",
+  "computer": {},
+  "agent": {
+    "shell": "off",
+    "checkpoints": true,
+    "auto_skill": true,
+    "skill_decline_limit": 2
+  },
+  "context_budget": 24000
+}
