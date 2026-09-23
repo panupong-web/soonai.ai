@@ -13,7 +13,7 @@
 """
 
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 
 def count_thai_chars(text: str) -> int:
@@ -36,7 +36,6 @@ def analyze_complexity(prompt: str, config: Dict) -> dict:
 
     # 1. Length factor (นับทั้งไทยและอังกฤษ)
     total_length = len(prompt)
-    thai_chars = count_thai_chars(prompt)
 
     if total_length > config.get("model_routing", {}).get("complexity_threshold", 150):
         score += 40
@@ -99,7 +98,7 @@ def select_best_model(prompt: str, config: Dict, current_model: str) -> str:
     """
     เลือกโมเดลที่ดีที่สุดสำหรับ prompt
     ถ้าไม่มีอะไรซับซ้อน → ใช้ default model (ประหยัด)
-    
+
     รองรับ:
     - โมเดล cloud (OpenRouter, OpenAI, Gemini, ฯลฯ)
     - โมเดล Ollama บนเครื่อง
@@ -112,7 +111,6 @@ def select_best_model(prompt: str, config: Dict, current_model: str) -> str:
         return current_model
 
     models = config.get("models_high_accuracy", {})
-    all_models = config.get("all_models", {})
 
     # Check if Ollama is available and prefer local for complex tasks
     ollama_models = config.get("ollama_models", {})

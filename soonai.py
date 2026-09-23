@@ -7782,7 +7782,7 @@ def cmd_git(args, keys, cfg):
             for st, p in changes[:50]:
                 table.add_row(st, p)
             console.print(table)
-            console.print(f"[dim]{len(changes)} ไฟล์เปลี่ยน · [bold]{len(untracked := [p for s,p in changes if s=='??'])} untracked[/dim]")
+            console.print(f"[dim]{len(changes)} ไฟล์เปลี่ยน · [bold]{len([p for s,p in changes if s=='??'])} untracked[/dim]")
         else:
             console.print("[green]Working tree สะอาด[/green]")
         return 0
@@ -7846,7 +7846,8 @@ def cmd_undo(args, keys, cfg):
 
 def cmd_test(args, keys, cfg):
     """รันเทสต์อัตโนมัติ (pytest) แสดงผลลัพธ์"""
-    import subprocess, time
+    import subprocess
+    import time
     test_dir = args.path or "."
     console.print(f"[cyan]กำลังรันเทสต์ใน {test_dir}…[/cyan]")
     t0 = time.time()

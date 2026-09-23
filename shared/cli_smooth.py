@@ -12,15 +12,14 @@
 8. PulseAnimation — อนิเมชัน pulse ที่ไม่รบกวน
 """
 import sys
-import os
 import threading
 import time
 import queue
 from pathlib import Path
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Optional, Callable, Any
 import itertools
+from rich.markdown import Markdown  # render markdown chunks ใน StreamingTextEngine
 
 # runtime import แบบ lazy — ไม่ import ตอน module load
 _RUNTIME_REF = None
@@ -46,7 +45,7 @@ class StreamChunk:
 
 class StreamingTextEngine:
     """ข้อความ streaming ที่ลื่นไหล — จัดกลุ่ม chunks แล้ว render แบบ batch
-    
+
     Codex จะส่งข้อความทีละนิดแล้วอัปเดตหน้าจอแบบ real-time.
     ที่นี่เราจะ:
     - รวม chunks ที่มาเร็วๆ กัน (within 50ms)
@@ -93,32 +92,31 @@ class StreamingTextEngine:
                 return
             chunks = list(self._buffer)
             self._buffer.clear()
-        
+
         self._render_chunks(chunks)
 
     def _render_loop(self):
         """Loop ที่ render แบบ batch — ทุก 50ms"""
         while self._running:
-            now = time.time()
             time.sleep(min(self._batch_window, 0.05))
-            
+
             with self._lock:
                 if not self._buffer:
                     continue
                 chunks = list(self._buffer)
                 self._buffer.clear()
-            
+
             self._render_chunks(chunks)
 
     def _render_chunks(self, chunks):
         """render ชุดของ chunks พร้อมกัน"""
         if not chunks:
             return
-        
+
         text = "".join(c.text for c in chunks)
         if not text.strip():
             return
-        
+
         # Markdown chunks render เป็น Markdown
         md_chunks = [c for c in chunks if c.is_markdown]
         if md_chunks:
@@ -136,7 +134,7 @@ class StreamingTextEngine:
 # ═══════════════════════════════════════════════════════════════
 class LiveStatusBar:
     """Status bar ที่อัปเดต real-time — เหมือน Codex status indicator
-    
+
     แสดงที่ด้านล่าง:
     - Provider/model ปัจจุบัน
     - จำนวน tokens ที่ใช้
@@ -192,44 +190,44 @@ class LiveStatusBar:
             now = time.time()
             elapsed = now - self._start_time
             self._elapsed = elapsed
-            
+
             with self._lock:
                 text = self._build_text()
-            
+
             if text != self._last_text:
                 self._last_text = text
                 self._render(text)
-            
+
             time.sleep(1.0)
 
     def _build_text(self):
         """สร้างข้อความ status bar"""
         parts = []
-        
+
         # Provider/model
         if self._provider or self._model:
             parts.append(f"[cyan]{self._provider or '?'}[/cyan] "
                          f"[white]{self._model or '?'}[/white]")
-        
+
         # Agent indicator
         if self._agent:
             parts.append("[yellow]⚡ agent[/yellow]")
-        
+
         # Auto approve
         if self._auto_yes:
             parts.append("[magenta]AUTO[/magenta]")
-        
+
         # Tools
         if self._tools_called > 0:
             parts.append(f"[dim]tools: {self._tools_called}[/dim]")
-        
+
         # Time
         parts.append(f"[dim]{self._elapsed:.0f}s[/dim]")
-        
+
         # Tokens
         if self._tokens > 0:
             parts.append(f"[dim]{self._tokens:,} tokens[/dim]")
-        
+
         return " · ".join(parts)
 
     def _render(self, text):
@@ -257,7 +255,7 @@ class LiveStatusBar:
 # ═══════════════════════════════════════════════════════════════
 class BackgroundTaskQueue:
     """Task queue สำหรับงานพื้นหลัง — ไม่บล็อก UI
-    
+
     Codex ทำงานหลายอย่างพร้อมกัน: คิด, ค้นหา, รัน, แสดงผล.
     ที่นี่เราทำให้:
     - ไม่บล็อก main thread
@@ -296,7 +294,7 @@ class BackgroundTaskQueue:
 
     def submit(self, task_id, func, *args, priority=5, callback=None):
         """ส่งงานเข้า queue
-        
+
         priority: 0 = highest, 9 = lowest
         callback: function(result) — เรียกเมื่องานเสร็จ
         """
@@ -310,7 +308,7 @@ class BackgroundTaskQueue:
                 priority, count, task_data, task_id = self._queue.get(timeout=0.5)
                 if task_data is None:
                     continue  # Stop signal
-                
+
                 func, args, callback = task_data
                 try:
                     result = func(*args)
@@ -341,7 +339,7 @@ class BackgroundTaskQueue:
 # ═══════════════════════════════════════════════════════════════
 class PulseAnimation:
     """อนิเมชัน pulse — แสดงว่ากำลังประมวลผล
-    
+
     Codex มี pulse animation ที่ด้านล่างที่แสดงว่า AI กำลังคิด.
     ที่นี่เรา implement แบบเดียวกันแต่ไม่รบกวนการพิมพ์.
     """
@@ -395,7 +393,7 @@ class PulseAnimation:
 # ═══════════════════════════════════════════════════════════════
 class SmartCache:
     """Cache ที่มี TTL + LRU + size limit
-    
+
     ใช้ cache:
     - Model lists (ไม่ต้องดึงใหม่ทุกรอบ)
     - Provider info
@@ -432,7 +430,7 @@ class SmartCache:
             while len(self._cache) >= self._max_size and self._access_order:
                 oldest = self._access_order.popleft()
                 self._cache.pop(oldest, None)
-            
+
             self._cache[key] = {
                 "value": value,
                 "expires_at": time.time() + (ttl or self._default_ttl),
@@ -467,7 +465,7 @@ class SmartCache:
 # ═══════════════════════════════════════════════════════════════
 class LiveRender:
     """Live rendering สำหรับ agent operations
-    
+
     Codex แสดง progress แบบ real-time ตอน:
     - กำลังคิด (thinking)
     - กำลังรันคำสั่ง
@@ -544,16 +542,16 @@ class KeyboardShortcuts:
         Shortcut("Ctrl+D", "EOF / ออก", "eof", "navigation"),
         Shortcut("Tab", " autocomplete / เลือก", "tab", "navigation"),
         Shortcut("Up/Down", "เลื่อน history", "history", "navigation"),
-        
+
         # Chat commands
         Shortcut("/", "เมนูคำสั่ง", "slash", "chat"),
         Shortcut("Ctrl+Space", "เสนอคำสั่ง", "suggest", "chat"),
         Shortcut("Esc", "ปิดเมนู/กลับ", "escape", "chat"),
-        
+
         # Agent
         Shortcut("Ctrl+Enter", "ส่ง (agent mode)", "agent_send", "agent"),
         Shortcut("Alt+Enter", "ส่งใหม่", "new_chat", "agent"),
-        
+
         # Tools
         Shortcut("Ctrl+L", "ล้างหน้าจอ", "clear", "tools"),
         Shortcut("Ctrl+R", "ค้นหาใน history", "search", "tools"),
@@ -578,7 +576,7 @@ class KeyboardShortcuts:
 # ═══════════════════════════════════════════════════════════════
 class MemoryPool:
     """Object pool — ลด GC pressure ตอนเรนเดอร์เยอะๆ
-    
+
     Codex ไม่สร้าง object ใหม่ทุกครั้ง — ใช้ pool แทน.
     ที่นี่เรา pool สำหรับ:
     - Text segments
@@ -610,7 +608,7 @@ class MemoryPool:
 # ═══════════════════════════════════════════════════════════════
 class CodexLikeUI:
     """UI ที่ลื่นไหลเหมือน Codex — รวมทุก feature เข้าด้วยกัน
-    
+
     Usage:
         ui = CodexLikeUI(console)
         ui.start()
@@ -688,7 +686,7 @@ class CodexLikeUI:
 # ═══════════════════════════════════════════════════════════════
 class SmoothInput:
     """อินพุตที่ลื่นไหล — ไม่มี lag, ไม่สะดุด
-    
+
     Codex มี input ที่ตอบสนองทันที — ไม่มี delay.
     ที่นี่เราทำให้:
     - readline สำหรับ history ถาวร
@@ -708,21 +706,20 @@ class SmoothInput:
         """ตั้ง readline"""
         try:
             import readline
-            import pyreadline  # Windows
         except ImportError:
             try:
                 import readline
             except ImportError:
                 return
-        
+
         try:
             readline.read_history_file(self.history_file)
         except Exception:
             pass
-        
+
         import atexit
         atexit.register(self._save_history)
-        
+
         try:
             readline.parse_and_bind("tab: complete")
             readline.parse_and_bind("set completion-ignore-case on")
@@ -744,7 +741,7 @@ class SmoothInput:
             from prompt_toolkit import PromptSession
             from prompt_toolkit.history import InMemoryHistory
             from prompt_toolkit.styles import Style
-            
+
             self._history = InMemoryHistory()
             self._ptk_session = PromptSession(
                 history=self._history,
@@ -756,7 +753,7 @@ class SmoothInput:
 
     def prompt(self, prompt_text="> ", completer=None):
         """รับ input — เร็วที่สุด ไม่มี lag
-        
+
         ลำดับความสำคัญ:
         1. prompt_toolkit session (ถ้ามี)
         2. readline (ถ้าตั้งไว้)
@@ -768,14 +765,13 @@ class SmoothInput:
                 return self._ptk_session.prompt(prompt_text)
             except Exception:
                 pass
-        
+
         # 2. readline
         try:
-            import readline
             return input(prompt_text)
         except Exception:
             pass
-        
+
         # 3. console.input
         try:
             return self.console.input(prompt_text)
@@ -804,7 +800,7 @@ def patch_console_for_smooth(console):
         console._last_width = console.width
     except Exception:
         pass
-    
+
     # เพิ่ม method สำหรับ smooth render
     def smooth_print(self, *args, **kwargs):
         """Print ที่ไม่ block"""
@@ -812,7 +808,7 @@ def patch_console_for_smooth(console):
             self.print(*args, **kwargs)
         except Exception:
             pass
-    
+
     console.smooth_print = smooth_print.__get__(console)
 
 
@@ -821,7 +817,7 @@ def patch_console_for_smooth(console):
 # ═══════════════════════════════════════════════════════════════
 def optimize_startup(console, history_file=None):
     """เรียกตอน startup — ตั้ง readline, pre-import, cache
-    
+
     เร่ง startup ให้เร็วเหมือน Codex.
     """
     # 1. readline
@@ -842,7 +838,7 @@ def optimize_startup(console, history_file=None):
             pass
     except ImportError:
         pass
-    
+
     # 2. Pre-import heavy modules
     _preimports = [
         "prompt_toolkit",
@@ -863,7 +859,7 @@ def optimize_startup(console, history_file=None):
             __import__(mod)
         except ImportError:
             pass
-    
+
     # 3. Cache terminal width
     try:
         _term_w = console.width

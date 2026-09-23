@@ -2,7 +2,9 @@
 """ทดสอบระบบหัวข้อ session: _title_is_weak · _fallback_title · save_session
 รักษาธง · ensure_session_title (AI สำเร็จ/ล้มเหลว) · refresh_session_title
 (ข้ามสปินเนอร์เมื่อไม่ต้องทำอะไร)"""
-import sys, json, tempfile
+import sys
+import json
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, r"C:\Users\opc\Desktop\soonaiTH")
