@@ -248,5 +248,18 @@
   },
   "context_budget": 16384,
   "max_retries": 2,
-  "retry_delay_seconds": 1
+  "retry_delay_seconds": 1,
+  "custom_providers": {
+    "maxplus": {
+      "name": "MaxPlus (GLM)",
+      "base": "https://api.maxplus-ai.cc/glm-officials-sub/v1",
+      "model": "glm-5.3",
+      "models": [
+        "glm-5.3"
+      ],
+      "models_url": "https://api.maxplus-ai.cc/glm-officials-sub/v1/models",
+      "extra_headers": {},
+      "key_env": "MAXPLUS_API_KEY"
+    }
+  }
 }
