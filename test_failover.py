@@ -2,6 +2,7 @@
 """Regression: โควต้าหมด (402) ต้องสลับค่ายอัตโนมัติ ไม่ตายกลางทาง."""
 import json
 import os
+import pathlib
 import sys
 import tempfile
 import time
@@ -401,6 +402,95 @@ _cc = S._chat_switch_driver(_c, "anthropic", "claude-x", [], 0.2, False, "", Non
 assert type(_cc).__name__ == "_AnthropicChatDriver"
 assert S._AnthropicDriver.can_switch_provider is True
 print("ok 20: driver ข้ามตระกูลทั้ง agent/chat")
+
+# ---------- 21) Ollama native driver: num_ctx ผ่าน /api/chat (แก้ตอบไม่จบ + วนขอต่อ) ----------
+D = S._OllamaChatDriver("deepseek-r1:latest", [], 0.2, None)
+url, headers, payload = D.spec()
+assert url.endswith("/api/chat"), url
+assert payload["options"]["num_ctx"] >= 2048, payload
+assert payload["stream"] is False and payload["think"] is False
+assert "max_tokens" not in payload  # แปลงเป็น options.num_predict แล้ว
+D2 = S._OllamaChatDriver("m", [], 0.2, 500)
+assert D2.spec()[2]["options"]["num_predict"] == 500
+assert D.max_rounds == 3 and D.should_continue("length", 0)
+assert not D.should_continue("stop", 0) and not D.should_continue("length", 2)
+print("ok 21: Ollama driver — /api/chat + num_ctx + num_predict + think:false")
+
+# 22) spec payload เก็บ messages จริง + non-stream read ทั้ง thinking/content
+D3 = S._OllamaChatDriver("m", [{"role": "user", "content": "สวัสดี"}], 0.2, None)
+_p = D3.spec()[2]
+assert _p["messages"][0]["content"] == "สวัสดี"
+
+
+class _OR:
+    def __init__(self, j):
+        self._j = j
+
+    def json(self):
+        return self._j
+
+
+txt, fin = D3.read(_OR({"message": {"content": "สวัสดีครับ", "thinking": "คิด…"},
+                        "done_reason": "stop"}), lambda t: None)
+assert txt == "สวัสดีครับ" and fin == "stop", (txt, fin)
+
+
+class _SR:
+    def __init__(self, lines):
+        self._l = lines
+
+    def iter_lines(self, decode_unicode=True):
+        return iter(self._l)
+
+
+_saw = []
+D3.stream = True  # ทดสอบเส้น stream ของ read (payload ไม่เกี่ยวกับการอ่าน)
+txt, fin = D3.read(_SR(['{"message":{"content":"a"}}',
+                        '{"message":{"content":"b"},"done":true,"done_reason":"stop"}']),
+                   lambda t: _saw.append(t))
+assert txt == "ab" and fin == "stop" and _saw == ["a", "b"], (txt, fin, _saw)
+print("ok 22: Ollama read — non-stream + stream (emit ทีละ chunk)")
+
+# 23) switch ข้ามตระกูลครบ 3 ทาง + failover เข้า/ออก ollama จริง
+_c23 = S._OpenAIChatDriver("groq", "m", [], 0.2, False, "", None)
+_x23 = S._chat_switch_driver(_c23, "ollama", "deepseek-r1:latest", [], 0.2, False, "", None, 0)
+assert type(_x23).__name__ == "_OllamaChatDriver", type(_x23).__name__
+_b23 = S._chat_switch_driver(_x23, "groq", "llama-3.3-70b", [], 0.2, False, "", None, 0)
+assert type(_b23).__name__ == "_OpenAIChatDriver", type(_b23).__name__
+assert S._chat_family("ollama") == "ollama"
+assert S._chat_family("anthropic") == "anthropic"
+assert S._chat_family("groq") == "openai"
+S.load_keys = lambda: {"ollama": "", "groq": "x"}
+S._local_reachable = lambda pid: pid == "ollama"  # คืนจาก patch เคส 14 ที่ฝืน False ทุกค่าย
+S.get_models = lambda pid, refresh=False: (["deepseek-r1:latest"], {})
+S._QUOTA_DEAD.clear()
+nm23 = S._failover_provider("groq", "m", ttl=60)
+assert nm23 == ("ollama", "deepseek-r1:latest"), nm23
+print("ok 23: ข้ามตระกูล 3 ทาง + failover groq→ollama จริง")
+
+# 24) guard ยิง AI ขวางทางเมื่อใช้ค่าย local (title ไม่ยิง · boost ไม่ยิง)
+_d24 = pathlib.Path(tempfile.mkdtemp(prefix="soonai_t24_"))
+(_d24 / "s24.json").write_text(json.dumps(
+    {"id": "s24", "name": "สวัสดี", "title_attempts": 0, "title_ai": False,
+     "messages": [{"role": "user", "content": "สวัสดี"},
+                  {"role": "assistant", "content": "ครับ"}]}), encoding="utf-8")
+_orig_sessions = S.SESSIONS_DIR
+try:
+    S.SESSIONS_DIR = _d24
+    calls24 = []
+    S.gen_session_title = lambda *a, **k: calls24.append(1) or "หัวข้อใหม่"
+    r24 = S.ensure_session_title("s24", "ollama", "deepseek-r1:latest", [])
+    assert r24 == "สวัสดี" and not calls24, (r24, calls24)
+    d24 = json.loads((_d24 / "s24.json").read_text(encoding="utf-8"))
+    assert d24["name"] == "สวัสดี" and d24.get("title_attempts", 0) == 0, d24
+finally:
+    S.SESSIONS_DIR = _orig_sessions
+    for _p in _d24.iterdir():
+        _p.unlink(missing_ok=True)
+    _d24.rmdir()
+_src24 = open("shared/chat.py", encoding="utf-8").read()
+assert 'not in ("ollama", "lmstudio")' in _src24
+print("ok 24: ค่าย local — ไม่ยิง AI ตั้งหัวข้อ · ไม่ยิง boost ขวางทาง")
 
 try:
     os.remove(_tmp_health)

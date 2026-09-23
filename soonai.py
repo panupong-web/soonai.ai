@@ -2930,12 +2930,20 @@ def _agent_switch_driver(driver, np, nm):
         return None
 
 
+def _chat_family(pid):
+    """ตระกูล driver ของค่าย: anthropic / openai / ollama (สลับข้ามตระกูล = สร้าง driver ใหม่
+    เพราะ url/payload ต่างกันคนละแบบ — เช่น ollama ต้องยิง /api/chat พร้อม options)"""
+    if _is_anthropic_family(pid):
+        return "anthropic"
+    return "ollama" if pid == "ollama" else "openai"
+
+
 def _chat_switch_driver(driver, np, nm, messages, temperature, stream,
                         effort, max_tokens, depth):
-    """สลับ chat driver ข้ามตระกูล (เริ่มรอบใหม่บนค่ายใหม่) คืน driver หรือ None"""
+    """สลับ chat driver (เริ่มรอบใหม่บนค่ายใหม่) คืน driver หรือ None"""
     try:
         cur = getattr(driver, "provider_key", "")
-        if _is_anthropic_family(cur) == _is_anthropic_family(np):
+        if _chat_family(cur) == _chat_family(np):
             return driver if driver.switch_provider(np, nm) else None
         return _make_chat_driver(np, nm, messages, temperature, stream,
                                  _chat_effort(np, effort), max_tokens, depth)
@@ -4680,6 +4688,10 @@ def ensure_session_title(sid, provider, model, messages, force=False):
     cur = str(d.get("name", "") or "")
     if not _title_needs_ai(d, force):
         return cur
+    if provider in ("ollama", "lmstudio"):
+        # โมเดล local บนเครื่องธรรมดาใช้ตั้งหัวข้อไม่คุ้ม (CPU ~3 tok/s → สปินเนอร์ค้างเปล่า)
+        # คงชื่อปัจจุบัน ไม่นับ attempt — สลับค่ายแล้ว AI ตั้งหัวข้อให้ใหม่ได้ตามปกติ
+        return cur
     d["title_attempts"] = int(d.get("title_attempts", 0) or 0) + 1
     msgs = d.get("messages", [])
     new = gen_session_title(provider, model, msgs)
@@ -5680,6 +5692,114 @@ class _OpenAIChatDriver(_ChatDriver):
         self.payload["model"] = model
 
 
+class _OllamaChatDriver(_ChatDriver):
+    """ค่าย Ollama — ยิง native /api/chat ไม่ใช่ /v1/chat/completions
+
+    เหตุผล (พิสูจน์จากเครื่องจริง): endpoint /v1 ของ ollama เมิน field "options"
+    → num_ctx ติดค่า default 4096 เสมอ พอ system/history ใหญ่กว่านั้น โมเดลเห็น
+    คำถามโดนตัดแล้วเหลือที่น้อยจนตอบไม่ทันจบ (finish=length) → วงจรขอต่อวน
+    รอบละนาที ๆ แต่ /api/chat รับ options.num_ctx จริง (ยืนยันทาง /api/ps)
+
+    ปรับขนาด context ได้: คีย์ ollama_num_ctx ใน shared/config.json (default 8192)
+    เร็วขึ้นอีกเท่าตัวกับโมเดล thinking สาย qwen3: ใส่ think:false (r1 ฝัง thinking
+    ในตัวจึงไม่มีผล — ไม่ error เพราะ ollama เมินได้)
+    max_tokens → options.num_predict · stream/ต่อคำตอบเมื่อโดนตัดเหมือนตระกูล OpenAI"""
+
+    tag = "chat-ollama"
+    supports_stream = True
+    supports_switch = True      # ข้ามค่ายได้ (switch_provider สร้าง headers/url ใหม่)
+    emit_per_round = True
+    max_rounds = 3
+
+    def __init__(self, model, messages, temperature, max_tokens):
+        self.provider_key = "ollama"
+        self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.messages_list = list(messages)
+        self.payload = None
+        self.set_key()
+
+    def set_key(self):
+        cfg = PROVIDERS[self.provider_key]
+        key = get_key(self.provider_key, load_keys())
+        headers = {"Content-Type": "application/json"}
+        if key:  # ปกติ ollama ไม่ต้องมี key — ใส่ให้เผื่อ proxy หน้า server
+            headers["Authorization"] = f"Bearer {key}"
+        headers.update(cfg.get("extra_headers", {}))
+        self.headers = headers
+        self.url = "http://localhost:11434/api/chat"
+
+    def _num_ctx(self):
+        try:
+            n = int((load_config() or {}).get("ollama_num_ctx") or 0)
+        except Exception:
+            n = 0
+        return n if n >= 2048 else 8192
+
+    def spec(self):
+        if self.payload is None:
+            opts = {"num_ctx": self._num_ctx(), "temperature": self.temperature}
+            if self.max_tokens:
+                opts["num_predict"] = int(self.max_tokens)
+            self.payload = {"model": self.model, "messages": list(self.messages_list),
+                            "stream": self.stream, "think": False, "options": opts}
+        return self.url, self.headers, self.payload
+
+    def read(self, resp, emit):
+        if not self.stream:
+            j = resp.json()
+            m = j.get("message") or {}
+            text = fix_mojibake(m.get("content") or "")
+            emit(text)
+            return text, j.get("done_reason", "")
+        full, finish = "", ""
+        try:
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                try:
+                    j = json.loads(line.strip())
+                except Exception:
+                    continue
+                if not isinstance(j, dict):
+                    continue
+                m = j.get("message") or {}
+                d = m.get("content") or ""
+                if j.get("done"):
+                    finish = j.get("done_reason", "")
+                if d:
+                    full += d
+                    emit(d)
+        except Exception as e:
+            # สตรีมขาดกลางคัน: เก็บคำตอบที่ได้แล้วแจ้งเบา ๆ ดีกว่าพังทั้งเทิร์น
+            if full and not isinstance(e, RuntimeError) and _is_timeout_error(e):
+                console.print("[dim](สตรีมขาดกลางระหว่างทาง — คืนคำตอบบางส่วนที่ได้มา)[/dim]")
+                return full, finish
+            raise
+        return full, finish
+
+    def should_continue(self, finish, round_i):
+        return finish == "length" and round_i < self.max_rounds - 1
+
+    def continue_with(self, text):
+        console.print("[dim](ตอบยังไม่จบ — ขอต่อ…)[/dim]")
+        self.payload["messages"] = self.payload["messages"] + [
+            {"role": "assistant", "content": text},
+            {"role": "user", "content": "continue"}]
+
+    def switch_provider(self, provider, model):
+        self.provider_key = provider
+        self.set_key()          # คลาสนี้ set_key ผูก url ค่ายตาม provider_key ไว้แล้ว
+        self.payload["model"] = model
+        self.model = model
+        return True
+
+    def set_model(self, model):
+        self.model = model
+        self.payload["model"] = model
+
+
 class _AnthropicChatDriver(_ChatDriver):
     """Anthropic Messages API: คำตอบไม่สตรีม · system แยก · thinking ได้"""
 
@@ -5772,6 +5892,9 @@ def _make_chat_driver(provider, model, messages, temperature, stream, effort, ma
     """เลือกตัวขับตามชนิดค่าย (ที่เดียวในโค้ด — เพิ่มค่ายใหม่แก้ตรงนี้)"""
     if PROVIDERS[provider].get("type") == "anthropic":
         return _AnthropicChatDriver(model, messages, temperature, effort, max_tokens, depth)
+    if provider == "ollama":
+        # native /api/chat: /v1 ของ ollama เมิน options → num_ctx ติด 4096 คำตอบไม่จบ
+        return _OllamaChatDriver(model, messages, temperature, max_tokens)
     return _OpenAIChatDriver(provider, model, messages, temperature, stream, effort, max_tokens)
 
 

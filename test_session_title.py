@@ -72,19 +72,19 @@ sid2 = "20260922-888888"
 S.save_session(sid2, "ollama", "test-model", MSGS)
 _orig_gen = S.gen_session_title
 S.gen_session_title = lambda *a, **k: "วิเคราะห์โครงสร้าง Roblox MCP"
-got = S.ensure_session_title(sid2, "ollama", "test-model", MSGS)
+got = S.ensure_session_title(sid2, "groq", "test-model", MSGS)
 d3 = json.loads((tmp / f"{sid2}.json").read_text(encoding="utf-8"))
 check("AI สำเร็จ → ชื่อใหม่", d3["name"] == "วิเคราะห์โครงสร้าง Roblox MCP", repr(got))
 check("AI สำเร็จ → title_ai=True", d3.get("title_ai") is True)
 check("ensure รอบ 2 ไม่ยิง AI ซ้ำ (ชื่อดีแล้ว)",
-      S.ensure_session_title(sid2, "ollama", "test-model", MSGS) == "วิเคราะห์โครงสร้าง Roblox MCP")
+      S.ensure_session_title(sid2, "groq", "test-model", MSGS) == "วิเคราะห์โครงสร้าง Roblox MCP")
 
 # 5) ensure_session_title — AI ล้มเหลว → fallback จากข้อความจริง (ไม่ค้างชื่อมั่ว)
 sid5 = "20260922-444444"
 S.save_session(sid5, "ollama", "test-model", MSGS)   # fresh: ชื่อ 'สวัดดี' ไม่มีธง
 p5 = tmp / f"{sid5}.json"
 S.gen_session_title = lambda *a, **k: ""
-got = S.ensure_session_title(sid5, "ollama", "test-model", MSGS)
+got = S.ensure_session_title(sid5, "groq", "test-model", MSGS)
 d4 = json.loads(p5.read_text(encoding="utf-8"))
 check("AI ล้มเหลว → fallback เป็นข้อความแรกที่สื่อหัวข้อ",
       d4["name"] == S._clean_title(LONG_Q, limit=40), repr(d4["name"]))
@@ -101,12 +101,24 @@ p6 = tmp / f"{sid6}.json"
 ai_calls = []
 S.gen_session_title = lambda *a, **k: (ai_calls.append(1), "")[1]
 for _ in range(6):
-    S.ensure_session_title(sid6, "ollama", "test-model", MSGS)
+    S.ensure_session_title(sid6, "groq", "test-model", MSGS)
 check("AI พังตลอด → ยิงไม่เกินเพดาน 3 ครั้ง (เรียก 6 รอบ)",
       len(ai_calls) == 3, f"calls={len(ai_calls)}")
 d6 = json.loads(p6.read_text(encoding="utf-8"))
 check("ครบเพดาน → attempts หยุดที่ 3", d6.get("title_attempts") == 3,
       repr(d6.get("title_attempts")))
+
+# 5c) ค่าย local (ollama) → guard ไม่ยิง AI ตั้งหัวข้อเลย (CPU ช้าเกิน สปินเนอร์ค้างเปล่า)
+sid7 = "20260922-222222"
+S.save_session(sid7, "ollama", "test-model", MSGS)
+p7 = tmp / f"{sid7}.json"
+ai_calls7 = []
+S.gen_session_title = lambda *a, **k: (ai_calls7.append(1), "หัวข้อ AI")[1]
+got7 = S.ensure_session_title(sid7, "ollama", "test-model", MSGS)
+check("ollama → ไม่ยิง AI ตั้งหัวข้อ (คงชื่อเดิม)", not ai_calls7 and got7 == "สวัดดี", repr(got7))
+d7 = json.loads(p7.read_text(encoding="utf-8"))
+check("ollama → ไม่นับ attempts (สลับค่ายแล้ว AI ยังตั้งใหม่ได้)",
+      d7.get("title_attempts", 0) == 0, repr(d7.get("title_attempts")))
 
 # 6) refresh_session_title — ข้ามสปินเนอร์เมื่อไม่ต้องทำอะไร
 spinner_calls = []

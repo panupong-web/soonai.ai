@@ -1124,7 +1124,10 @@ def cmd_chat(args, keys, cfg):
             q = q[1:].strip()
             if not q:
                 continue
-        elif not q.startswith("/") and not st.agent and R.boost_mode(st.cfg) != "off" and sys.stdin.isatty():
+        elif (not q.startswith("/") and not st.agent and R.boost_mode(st.cfg) != "off"
+              and sys.stdin.isatty() and st.provider not in ("ollama", "lmstudio")):
+            # ค่าย local: ข้าม boost — ไม่งั้นทุกคำถามเสีย AI call เต็มรอบเพื่อแต่งประโยค
+            # (บน CPU คือหลายสิบวินาทีก่อนคำถามจริงจะเริ่ม)
             _bm = R.boost_mode(st.cfg)
             if R.boost_worth_it(q, _bm):
                 try:
