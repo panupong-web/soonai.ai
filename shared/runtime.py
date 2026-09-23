@@ -35,6 +35,7 @@ CONFIG_FILE = SHARED_DIR / "config.json"
 
 # ── state container (ค่าเริ่มต้นตรงกับ soonai.py ปัจจุบัน) ───────────────────
 _MCP_DEFS_CACHE = {"defs": None}
+_MCP_LAZY = {"loaded": False}  # True = โหลด MCP tools เข้า payload แล้ว (ตั้งโดย mcp_tools, รีเซ็ตทุกรอบ agent loop)
 _SKILL_STATE = {"data": None}
 _SKILL_CARRYOVER = {"done": False}
 _SKILL_AUTOSUGGEST = {"asked": set()}

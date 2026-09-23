@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 import types
+import urllib.parse
 from pathlib import Path
 
 # Add shared folder to path
@@ -57,7 +58,8 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.spinner import Spinner
 
-from providers import PROVIDERS, is_free_model, price_tier, price_str, model_label, get_key
+from providers import (PROVIDERS, is_free_model, price_tier, price_str, model_label, get_key,
+                       apply_custom_providers)
 
 try:
     import symbols as _symbols_mod
@@ -105,7 +107,8 @@ except Exception:
 
 try:
     from mcp_client import (hub as _MCP_HUB, agent_mcp_tools as _agent_mcp_tools,
-                            call_mcp_tool as _call_mcp_tool, split_mcp_name as _split_mcp_name)
+                            call_mcp_tool as _call_mcp_tool, split_mcp_name as _split_mcp_name,
+                            compact_tool_defs as _compact_mcp_tool_defs)
     _MCP_OK = True
 except Exception:
     _MCP_HUB = None
@@ -167,6 +170,7 @@ try:
     _diff_stat_line,
     _status_extras,
     status_line,
+    slow_statusline,
     current_summary,
     _term_width,
     _dwidth,
@@ -190,6 +194,41 @@ except Exception:                    # pragma: no cover - กันไฟล์�
         """fallback: โหลดโมดูล chat ไม่ได้ → แจ้งแล้วออก (CLI ยังไม่พังทั้งตัว)"""
         console.print("[red]โมดูล chat ใช้ไม่ได้ (ไม่พบ shared/chat.py)[/red]")
         return 1
+
+
+# โหมด debug — เก็บ traceback ของ exception ที่ถูกกลืนลงไฟล์ log + หมุนไฟล์อัตโนมัติ
+# (ปิดอยู่ = ไม่แตะดิสก์เลย · เปิดด้วย SOONAI_DEBUG=1 · ดู shared/debug.py)
+try:
+    import debug as _DBG
+except Exception:                      # pragma: no cover - กันไฟล์หาย/พัง
+    class _NoDebug:
+        """fallback: ไม่มี shared/debug.py → กลืนเงียบเหมือนเดิม แต่ crash.log ยังถูกเขียน"""
+
+        @staticmethod
+        def enabled():
+            return False
+
+        @staticmethod
+        def install_hooks():
+            return False
+
+        @staticmethod
+        def note(*_a, **_k):
+            return False
+
+        @staticmethod
+        def log_swallowed(*_a, **_k):
+            return False
+
+        @staticmethod
+        def log_crash(text, where=""):
+            try:
+                (BASE_DIR / "crash.log").write_text(text, encoding="utf-8")
+                return True
+            except Exception:
+                return False
+
+    _DBG = _NoDebug()
 
 
 def _ui_theme_name():
@@ -312,12 +351,29 @@ TEAM_FILE = SHARED_DIR / "team.json"
 MAX_STAFF = 5
 VERSION = "2.32.0"
 DEFAULT_SYSTEM = "คุณคือผู้ช่วย AI ภาคภาษาไทย ตอบกระชับ ชัดเจน"
-QUALITY_SYSTEM = ("คุณคือผู้ช่วย AI ภาคภาษาไทยที่แม่นยำและตรงประเด็น "
+# กฎจัดการข้อความกำกวม/ต้านคำตอบมั่ว (แชทปกติ + agent + ทีม) — เคสจริงที่พบ:
+# ผู้ใช้พิมพ์สั้น ๆ ว่า "ใช้ mcp ดิ" แล้วโมเดลเดาเป็น Roblox พร้อมอ้างพาธ
+# %LOCALAPPDATA%\Roblox\mcp.bat ที่ไม่มีอยู่จริง + ตอบวนเป็นชุดคำถามโดยไม่ให้สาระ
+CLARIFY_RULES = (
+    "เมื่อข้อความผู้ใช้สั้น/กำกวม (เช่น พิมพ์แค่คำว่า 'mcp'): ห้ามเลือกความหมายเอง "
+    "ให้ถามชี้แจงสั้น ๆ 1 ครั้งพร้อมทางเลือกที่เป็นรูปธรรม — เรื่อง mcp เสนอ 2 ทาง: "
+    "(ก) ระบบ MCP ของ SoonAI เอง (ดู soonai mcp catalog · ติดตั้ง soonai mcp install <ชื่อ> · "
+    "ในแชทใช้ /mcp) (ข) MCP ทั่วไปของ client อื่น เช่น Claude/Cursor — ถ้าใช่ให้ถามว่าใช้ "
+    "client ตัวไหนและต้องการเชื่อมต่อ service/API อะไร "
+    "ห้ามอ้างไฟล์ โฟลเดอร์ พาธ โปรแกรม หรือบริการใด ๆ ที่ไม่ได้เห็นจริงจาก tools "
+    "หรือบริบทที่ระบบแนบมา (ห้ามเดาพาธเฉพาะเครื่อง เช่น %LOCALAPPDATA%\\...) "
+    "ทุกคำตอบต้องแนบสาระ/ข้อมูลที่เป็นประโยชน์อย่างน้อย 1 ส่วนควบคู่กับคำถาม "
+    "รวมคำถามที่จำเป็นทั้งหมดไว้ในรอบเดียว ห้ามตอบวนเป็นชุดคำถามเรื่อย ๆ")
+CLARIFY_MARKER = "ถามชี้แจงสั้น ๆ 1 ครั้ง"  # ใช้ตรวจว่า system prompt มีกฎนี้แล้วหรือยัง
+
+LEGACY_QUALITY_SYSTEM = ("คุณคือผู้ช่วย AI ภาคภาษาไทยที่แม่นยำและตรงประเด็น "
                   "ตอบกระชับชัดเจนเป็นภาษาไทย (คงศัพท์เทคนิคอังกฤษไว้) "
                   "เรื่องข้อเท็จจริงตอบเฉพาะสิ่งที่มั่นใจ ถ้าไม่แน่ใจให้บอกตรง ๆ ว่าห้ามเดา "
                   "เรื่องโค้ดใช้เฉพาะ API/ไลบรารี/ฟังก์ชันที่มีอยู่จริง ห้ามสมมติชื่อ ตรวจ syntax ก่อนตอบทุกครั้ง "
                   "เขียนโค้ดได้ทุกภาษาบนโลกไม่จำกัด ถ้าผู้ใช้ไม่ระบุภาษาให้เลือกภาษาที่เหมาะกับงานที่สุด "
-                  "สรุปจับประเด็นหลักก่อนเสมอแล้วค่อยลงรายละเอียด")
+                  "สรุปจับประเด็นหลักก่อนเสมอแล้วค่อยลงรายละเอียด")  # ค่า default เก่าที่เคยเซฟลง config (ใช้ตรวจ migration)
+
+QUALITY_SYSTEM = LEGACY_QUALITY_SYSTEM + " " + CLARIFY_RULES
 AGENT_SYSTEM = ("คุณคือ coding agent สั่งงานเครื่องของผู้ใช้ได้ด้วย tools: "
                 "glob/grep/read_file (สำรวจโค้ด) + make_dir/write_file/edit_file (สร้าง/แก้) "
                 "+ list_dir/run_cmd (ตรวจ/รัน) "
@@ -340,7 +396,8 @@ AGENT_SYSTEM = ("คุณคือ coding agent สั่งงานเคร�
                  'เช่น ```tool {"name": "make_dir", "arguments": {"path": "C:/Shop"}} ``` '
                  "ขอบเขตปลอดภัย: ทำงานในโฟลเดอร์โปรเจกต์ปัจจุบันเป็นหลัก "
                  "ไฟล์นอกโฟลเดอร์ต้องขออนุญาตก่อนเสมอ "
-                 "ห้ามรันคำสั่งทำลายระบบ (ลบทั้งไดรฟ์/ฟอร์แมต/fork bomb/payload เข้ารหัส)")
+                 "ห้ามรันคำสั่งทำลายระบบ (ลบทั้งไดรฟ์/ฟอร์แมต/fork bomb/payload เข้ารหัส) "
+                 + CLARIFY_RULES)
 
 # ระบบเลือกภาษาโค้ดอัตโนมัติ: เขียนได้ทุกภาษาบนโลก ไม่จำกัด
 # (งาน, ภาษาแนะนำ, นามสกุล, วิธีรัน) — agent เลือกตามงานเมื่อผู้ใช้ไม่ระบุ
@@ -446,6 +503,28 @@ AGENT_TOOLS = [
             "web": {"type": "boolean", "default": False,
                     "description": "ค้นบน GitHub เพิ่มด้วย (ต้องมีเน็ต)"}},
             "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "web_search",
+        "description": "ค้นเว็บจริงผ่าน TinyFish Search API (คืน URL + หัวข้อ + สรุป) — ใช้เมื่อข้อมูลใหม่/อยู่นอกความรู้ (ต้องมี TINYFISH_API_KEY)",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "คำค้น"},
+            "location": {"type": "string", "default": "US",
+                         "description": "รหัสประเทศของผลค้น เช่น US/TH"},
+            "language": {"type": "string", "default": "en",
+                         "description": "รหัสภาษาของผลค้น เช่น en/th"},
+            "intent": {"type": "string",
+                       "description": "บอกว่าจะเอาผลไปทำอะไร (ยิ่งชัดผลยิ่งดี)"}},
+            "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "web_fetch",
+        "description": "ดึงเนื้อหาเว็บเป็น markdown ผ่าน TinyFish Fetch API (คืน title + เนื้อหา) — ใช้หลัง web_search เพื่ออ่านหน้าจริง (ต้องมี TINYFISH_API_KEY)",
+        "parameters": {"type": "object", "properties": {
+            "url": {"type": "string", "description": "URL เดียวที่จะดึง (http/https)"},
+            "max_chars": {"type": "integer", "default": 8000,
+                          "description": "ตัดผลเหลือกี่ตัวอักษร"},
+            "intent": {"type": "string",
+                       "description": "บอกว่าจะเอาเนื้อหาไปทำอะไร"}},
+            "required": ["url"]}}},
     {"type": "function", "function": {
         "name": "run_tests",
         "description": "รันชุดเทสต์/lint ของโปรเจกต์ (ตรวจคำสั่งให้เองถ้าไม่ระบุ) คืนผลจริงเพื่อตรวจงานตัวเอง",
@@ -595,38 +674,9 @@ COMPUTER_TOOL_NAMES = ("computer_screenshot", "computer_vision", "computer_windo
 
 KNOWN_TOOLS = ("make_dir", "write_file", "read_file", "list_dir", "run_cmd", "run_tests",
                "edit_file", "grep", "glob", "outline", "read_skill", "mcp_tools",
-               "search_skills", "install_skill") + COMPUTER_TOOL_NAMES
+               "search_skills", "install_skill", "web_search", "web_fetch") + COMPUTER_TOOL_NAMES
 READONLY_TOOLS = ("read_file", "list_dir", "grep", "glob", "outline", "read_skill",
-                  "search_skills", "mcp_tools")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                  "search_skills", "mcp_tools", "web_search", "web_fetch")
 
 
 INIT_SYSTEM = ("You draft AGENTS.md files: short operating instructions for an AI coding "
@@ -978,7 +1028,7 @@ def extract_text_calls(text):
 def mcp_hub_for_tools():
     """รายชื่อ MCP tools รูป OpenAI defs (ล้มเหลว = [] ไม่พัง agent)"""
     try:
-        return _agent_mcp_tools() if _MCP_OK else []
+        return _compact_mcp_tool_defs(_agent_mcp_tools()) if _MCP_OK else []
     except Exception:
         return []
 
@@ -1138,7 +1188,8 @@ def _vision_retryable(msg):
     return any(k in low for k in
                ("404", "429", "rate limit", "quota", "unavailable",
                 "no longer available", "overloaded", "temporarily",
-                "timed out", "timeout", "connection", "image"))
+                "timed out", "timeout", "connection", "image",
+                "clipboard", "cannot read", "does not support"))
 
 
 VISION_DISCOVER_TTL = 24 * 3600
@@ -1193,7 +1244,9 @@ def discover_vision_models(provider, limit=8):
             return (1, 99, len(str(mid)))
 
         found = sorted(set(cands), key=_rank)[:max(1, int(limit or 8))]
-    except Exception:
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:discover_vision_models",
+                           "หารายชื่อโมเดล vision ไม่ได้ — ต้องระบุโมเดลเอง")
         found = []
     try:
         import time as _t
@@ -1220,7 +1273,8 @@ def _vision_call_once(provider, model, prompt, b64, w, h, path):
         headers = {"x-api-key": key, "anthropic-version": "2023-06-01",
                    "Content-Type": "application/json"}
         r = _post_chat("https://api.anthropic.com/v1/messages", headers=headers,
-                       payload=body, timeout=120, stream=False, tag="vision-anthropic")
+                       payload=body, timeout=_chat_timeout(False), stream=False,
+                       tag="vision-anthropic")
         j = r.json()
         if r.status_code != 200:
             raise RuntimeError(format_api_error(provider, r.status_code, j))
@@ -1235,7 +1289,8 @@ def _vision_call_once(provider, model, prompt, b64, w, h, path):
             {"type": "text", "text": prompt or "อธิบายภาพนี้สั้น ๆ"},
             {"type": "image_url", "image_url": {"url": "data:image/png;base64," + b64}}]}]}
     r = _post_chat(pcfg["base"].rstrip("/") + "/chat/completions", headers=headers,
-                   payload=body, timeout=120, stream=False, tag="vision-openai")
+                   payload=body, timeout=_chat_timeout(False), stream=False,
+                   tag="vision-openai")
     try:
         j = r.json()
     except Exception:
@@ -1412,12 +1467,6 @@ def _sensitive_hit(args, write=True):
     return ""
 
 
-
-
-
-
-
-
 def _sensitive_deny(name, args):
     """กัน AI เพิ่มสิทธิ์/ขโมย secret ให้ตัวเอง (บังคับในโค้ด ไม่ใช่แค่ prompt)
     คืนข้อความ ERROR หรือ '' ถ้าผ่าน"""
@@ -1461,16 +1510,40 @@ def _sensitive_deny(name, args):
 
 
 _MCP_DEFS_CACHE = {"defs": None}
-_MCP_LAZY = {"loaded": False}  # True = โหลด MCP tools เข้า payload แล้ว (ตั้งโดย mcp_tools, รีเซ็ตทุกรอบ agent loop)
+_MCP_LAZY = {"loaded": False}  # True = mcp_tools เคยถูกเรียกในเทิร์นนี้ (คงไว้เพื่อความเข้ากันได้เดิม)
+_MCP_ON = {"names": None}      # cache ชื่อ server ที่เปิดอยู่ (ล้างตอน agent_tools(refresh=True))
+
+
+def _mcp_servers_on():
+    """มี MCP server ที่เปิดอยู่ใน mcp.json ไหม (cache ต่อ process)
+
+    มี = ส่ง MCP tools เข้า payload ตั้งแต่รอบแรกของทุกเทิร์น/ทุก session เลย
+    (ไม่ต้องรอให้โมเดลเรียก mcp_tools ก่อน — เดิมทำให้ MCP ดูเหมือนใช้ไม่ได้จริง)
+    ไม่มี = เงียบ ไม่ต่อ server ไม่เปลือง token (ตรงกับพฤติกรรมเดิม)
+    """
+    if _MCP_ON["names"] is None:
+        try:
+            cfg = _MCP_HUB.servers() if _MCP_OK else {}
+        except Exception:
+            cfg = {}
+        _MCP_ON["names"] = [k for k, v in cfg.items()
+                            if isinstance(v, dict) and v.get("enabled", True)]
+    return bool(_MCP_ON["names"])
 
 
 def agent_tools(refresh=False, include_mcp=None):
-    """tools ที่ agent ใช้ได้: tools ในเครื่อง + MCP tools (lazy)
+    """tools ที่ agent ใช้ได้: tools ในเครื่อง + MCP tools
 
-    include_mcp=None (ดีฟอลต์): ตาม _MCP_LAZY — ยังไม่เรียก mcp_tools = ส่งแค่ tools
-    ในเครื่อง (ไม่ต่อ server ไม่เปลือง token) · True = รวม MCP ด้วย (ใช้กับจอ soonai mcp)
+    include_mcp=None (ดีฟอลต์): รวม MCP เมื่อมี server เปิดอยู่ใน mcp.json —
+    ส่งตลอดทุกเทิร์น ทุก session (ต่อ server ครั้งแรกแล้ว cache ไว้) ·
+    True/False = บังคับ (ใช้กับจอ soonai mcp)
     """
-    want_mcp = _MCP_LAZY.get("loaded", False) if include_mcp is None else include_mcp
+    if refresh:
+        _MCP_ON["names"] = None   # config เปลี่ยน (add/rm/on/off) → นับ server ใหม่
+    if include_mcp is None:
+        want_mcp = _MCP_LAZY.get("loaded", False) or _mcp_servers_on()
+    else:
+        want_mcp = bool(include_mcp)
     if want_mcp:
         if refresh or _MCP_DEFS_CACHE["defs"] is None:
             _MCP_DEFS_CACHE["defs"] = list(AGENT_TOOLS) + mcp_hub_for_tools()
@@ -1478,13 +1551,40 @@ def agent_tools(refresh=False, include_mcp=None):
     return list(AGENT_TOOLS)
 
 
+CLARIFY_GUARD = {"fixed": 0}  # นับครั้งที่ guard ซ่อม system prompt ก่อน generate (เทสต์/debug อ่านได้)
+
+
+def ensure_clarify_rules(messages):
+    """guardrail ตอน generate: system prompt ของแชทต้องมี CLARIFY_RULES ก่อนยิง API
+    คุ้มเคส config ถูกทับด้วยค่าเก่า หรือเซสชันที่บันทึกไว้ก่อนกฎถูกเพิ่ม
+    ซ่อมเฉพาะ payload ที่กำลังจะส่งนี้ ไม่เขียนทับไฟล์/ประวัติ
+    aux prompt (สร้างชื่อ/สรุป/ที่ปรึกษาสกิล) และค่า custom ที่ผู้ใช้เขียนเอง = ไม่แตะ
+    """
+    try:
+        if not messages or messages[0].get("role") != "system":
+            return messages
+        content = messages[0].get("content") or ""
+        if CLARIFY_MARKER in content:
+            return messages
+        if LEGACY_QUALITY_SYSTEM[:40] not in content:
+            # ไม่ใช่ system prompt ของแชท (aux) หรือเป็นค่าที่ผู้ใช้เขียนเอง → เคารพของเดิม
+            return messages
+        messages[0] = {"role": "system", "content": content + " " + CLARIFY_RULES}
+        CLARIFY_GUARD["fixed"] = int(CLARIFY_GUARD.get("fixed", 0)) + 1
+    except Exception:
+        pass
+    return messages
+
+
 def _ensure_mcp_hint(messages):
-    """บอกว่ามี MCP server ต่อไว้แค่บรรทัดเดียว (ไม่ต่อ server ไม่ลิสต์ชื่อ — โหลดเมื่อเรียก mcp_tools)"""
+    """บอกสถานะ MCP ต่อ system บรรทัดเดียว: มี server = รายชื่อ tools · ไม่มี server แต่ผู้ใช้เพิ่งพิมพ์ถึง mcp = บรรทัดชี้แจงกันโมเดลเดามั่ว"""
     try:
         if not messages or messages[0].get("role") != "system":
             return
         content = messages[0].get("content") or ""
-        if "mcp__" in content or "mcp_tools" in content:
+        # marker ของตัว hint เองทั้งสองสาขา — ห้ามใช้คำว่า mcp_tools/mcp__ ตรวจแทน
+        # เพราะ AGENT_SYSTEM มีคำเหล่านี้อยู่แล้ว (เคยทำให้โหมด agent ไม่ได้ hint เลย)
+        if "[สถานะ MCP" in content or "Tools เสริมนอกเครื่อง (MCP: " in content:
             return
         try:
             from mcp_client import load_mcp_config as _load_mcp
@@ -1494,23 +1594,32 @@ def _ensure_mcp_hint(messages):
         except Exception:
             names = []
         if not names:
+            # ยังไม่มี server — ใส่เฉพาะตอนผู้ใช้เพิ่งพิมพ์ถึง mcp (กันโมเดลเดาเรื่องภายนอกมั่ว)
+            last_user = ""
+            for _m in reversed(messages or []):
+                if isinstance(_m, dict) and _m.get("role") == "user" \
+                        and isinstance(_m.get("content"), str):
+                    last_user = _m["content"]
+                    break
+            if "mcp" not in last_user.lower():
+                return
+            messages[0] = {"role": "system",
+                           "content": messages[0]["content"] +
+                           "\n[สถานะ MCP ของ SoonAI] ยังไม่มี server ติดตั้ง — "
+                           "ถ้าผู้ใช้ต้องการใช้ MCP ของ SoonAI: ดู soonai mcp catalog · "
+                           "ติดตั้ง soonai mcp install <ชื่อ> · ในแชทใช้ /mcp · "
+                           "ถ้าผู้ใช้หมายถึง MCP ของ client อื่น (Claude/Cursor ฯลฯ) "
+                           "ให้ถามชี้แจงสั้น ๆ ว่าใช้ client ตัวไหน/เชื่อมต่อ service อะไร "
+                           "ห้ามเดาว่าหมายถึงตัวไหน และห้ามอ้างไฟล์/พาธ ที่ไม่ได้เห็นจริง"}
             return
         messages[0] = {"role": "system",
                        "content": messages[0]["content"] +
                        "\nTools เสริมนอกเครื่อง (MCP: " + ", ".join(names[:5]) +
-                       ") ถูกซ่อนไว้เพื่อประหยัด — ต้องใช้ค่อยเรียก mcp_tools ดูรายชื่อก่อน (ห้ามเดาชื่อ mcp__* เอง)"}
+                       ") อยู่ในรายการ tools ของรอบนี้แล้ว — เรียก "
+                       "mcp__<ชื่อserver>__<ชื่อtool> ได้เลย "
+                       "(ดูรายชื่อด้วย mcp_tools ถ้าจำชื่อไม่ได้ ห้ามเดาชื่อเอง)"}
     except Exception:
         pass
-
-
-
-
-
-
-
-
-
-
 
 
 # ── checkpoint: สำเนาไฟล์ก่อน agent แก้ ให้ย้อนกลับได้ (/undo) ─────────────
@@ -1539,8 +1648,9 @@ def _cp_prune():
                       key=lambda p: p.stat().st_mtime, reverse=True)
         for old in dirs[CHECKPOINT_MAX_BUCKETS:]:
             shutil.rmtree(old, ignore_errors=True)
-    except Exception:
-        pass
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:_cp_prune",
+                           "กวาด checkpoint เก่าไม่ได้ — โฟลเดอร์จะบวมขึ้นเรื่อย ๆ")
 
 
 def _cp_bucket():
@@ -1660,12 +1770,136 @@ def undo_last(n=1):
         if d and Path(d).is_dir():
             save_json(Path(d) / "index.json",
                       [r for r in recs if id(r) not in undone_ids])
-    except Exception:
-        pass
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:undo_last",
+                           "อัปเดตดัชนี checkpoint หลัง undo ไม่ได้ (ไฟล์ที่คืนแล้วยังถูกคืน)")
     out = "\n".join(done)
     if failed:
         out += ("\n" if out else "") + "ย้อนไม่ได้: " + ", ".join(failed)
     return out or "ไม่มีอะไรให้ย้อน"
+
+
+# ── เครื่องมือ web ของ agent ผ่าน TinyFish (web infra ไม่ใช่ค่ายแชท) ──────────
+# Search/Fetch ฟรี ~30 ครั้ง/นาที · key ที่ https://agent.tinyfish.ai/api-keys
+TINYFISH_SEARCH_URL = "https://api.search.tinyfish.ai"
+TINYFISH_FETCH_URL = "https://api.fetch.tinyfish.ai"
+TINYFISH_KEY_HINT = ("ขอ key ฟรีที่ https://agent.tinyfish.ai/api-keys แล้วตั้งด้วย "
+                     "env TINYFISH_API_KEY หรือ: soonai key set tinyfish YOUR_KEY "
+                     "(หรือต่อ MCP ทั้งชุด: soonai mcp install tinyfish)")
+
+
+def _tinyfish_key():
+    """key ของ TinyFish: keys.json (soonai key set) ก่อน แล้วค่อย env TINYFISH_API_KEY"""
+    try:
+        return (get_key("tinyfish", load_keys()) or "").strip()
+    except Exception:
+        return ""
+
+
+def _tinyfish_search(a):
+    """ค้นเว็บผ่าน TinyFish Search API (GET · ฟรี ~30 ครั้ง/นาที)
+    คืนข้อความผลลัพธ์ที่อ่านง่าย หรือ 'ERROR: ...' ไม่ raise"""
+    a = a or {}
+    q = str(a.get("query") or "").strip()
+    if not q:
+        return "ERROR: ต้องมี query"
+    key = _tinyfish_key()
+    if not key:
+        return f"ERROR: ยังไม่มี TinyFish API key — {TINYFISH_KEY_HINT}"
+    url = str((PROVIDERS.get("tinyfish") or {}).get("search_url")
+              or TINYFISH_SEARCH_URL)
+    params = {"query": q}
+    for k in ("location", "language"):
+        v = str(a.get(k) or "").strip()
+        if v:
+            params[k] = v
+    intent = str(a.get("intent") or "").strip()
+    if intent:
+        params["intent"] = intent[:2000]
+    try:
+        r = _http_session().get(url, params=params,
+                                headers={"X-API-Key": key}, timeout=10)
+    except Exception as e:
+        return f"ERROR: เชื่อมต่อ TinyFish ไม่ได้: {e}"
+    if r.status_code != 200:
+        return f"ERROR: TinyFish Search HTTP {r.status_code}: {(r.text or '')[:200]}"
+    try:
+        data = r.json()
+    except Exception:
+        return "ERROR: TinyFish ตอบกลับไม่ใช่ JSON"
+    rows = data.get("results") if isinstance(data, dict) else None
+    if not isinstance(rows, list) or not rows:
+        return "(ไม่พบผลค้น)"
+    out = []
+    for i, it in enumerate(rows[:10], 1):
+        if not isinstance(it, dict):
+            continue
+        title = str(it.get("title") or "").strip() or "(ไม่มีหัวข้อ)"
+        u = str(it.get("url") or "").strip()
+        snip = str(it.get("snippet") or "").strip()
+        dom = str(it.get("domain") or "").strip()
+        line = f"{i}. {title}" + (f" ({dom})" if dom else "")
+        if u:
+            line += f"\n   {u}"
+        if snip:
+            line += f"\n   {snip}"
+        out.append(line)
+    return "\n".join(out) or "(ไม่พบผลค้น)"
+
+
+def _tinyfish_fetch(a):
+    """ดึงหน้าเว็บเป็น markdown ผ่าน TinyFish Fetch API (POST · ฟรี)
+    คืนข้อความ (title + url + เนื้อหาตัดทอน) หรือ 'ERROR: ...' ไม่ raise"""
+    a = a or {}
+    url = str(a.get("url") or "").strip()
+    if not url.startswith(("http://", "https://")):
+        return "ERROR: url ต้องขึ้นต้นด้วย http:// หรือ https://"
+    key = _tinyfish_key()
+    if not key:
+        return f"ERROR: ยังไม่มี TinyFish API key — {TINYFISH_KEY_HINT}"
+    try:
+        mx = int(a.get("max_chars") or 8000)
+    except Exception:
+        mx = 8000
+    mx = min(max(mx, 200), 20000)   # กันยัดทั้งหน้าเข้าคอนเทกซ์ตส์/OOM (เหมือน read_file)
+    payload = {"urls": [url], "format": "markdown", "ttl": 600,
+               "per_url_timeout_ms": 45000}
+    intent = str(a.get("intent") or "").strip()
+    if intent:
+        payload["intent"] = intent[:2000]
+    fetch_url = str((PROVIDERS.get("tinyfish") or {}).get("fetch_url")
+                    or TINYFISH_FETCH_URL)
+    try:
+        r = _http_session().post(fetch_url, json=payload,
+                                 headers={"X-API-Key": key}, timeout=60)
+    except Exception as e:
+        return f"ERROR: เชื่อมต่อ TinyFish ไม่ได้: {e}"
+    if r.status_code != 200:
+        return f"ERROR: TinyFish Fetch HTTP {r.status_code}: {(r.text or '')[:200]}"
+    try:
+        data = r.json()
+    except Exception:
+        return "ERROR: TinyFish ตอบกลับไม่ใช่ JSON"
+    errs = data.get("errors") if isinstance(data, dict) else None
+    results = data.get("results") if isinstance(data, dict) else None
+    if not (isinstance(results, list) and results and isinstance(results[0], dict)):
+        return "ERROR: ไม่มีผลลัพธ์" + (f": {str(errs)[:300]}" if errs else "")
+    it = results[0]
+    text = it.get("text")
+    if isinstance(text, (dict, list)):
+        try:
+            text = json.dumps(text, ensure_ascii=False)
+        except Exception:
+            text = str(text)
+    text = str(text or "")
+    if not text.strip():
+        return ("ERROR: ดึงหน้าได้แต่เนื้อหาว่าง"
+                + (f" (errors: {str(errs)[:200]})" if errs else ""))
+    title = str(it.get("title") or url)
+    final = str(it.get("final_url") or it.get("url") or url)
+    body = text[:mx] + (f"... (ตัดที่ {mx} ตัวอักษร — เรียกซ้ำด้วย max_chars มากขึ้น)"
+                        if len(text) > mx else "")
+    return f"{title}\n{final}\n\n{body}"
 
 
 def run_tool(name, args):
@@ -1852,6 +2086,10 @@ def run_tool(name, args):
                 return ("(ไม่พบ skill ที่ตรงกับคำค้นนี้ — ดูทั้งหมดได้ด้วย soonai skills catalog "
                         "หรือสร้างใหม่ด้วย soonai skills new <ชื่อ>)")
             return "\n".join(lines[:12])
+        if name == "web_search":
+            return _tinyfish_search(args if isinstance(args, dict) else {})
+        if name == "web_fetch":
+            return _tinyfish_fetch(args if isinstance(args, dict) else {})
         if name == "mcp_tools":
             _MCP_LAZY["loaded"] = True
             try:
@@ -1874,8 +2112,9 @@ def run_tool(name, args):
                 if len(rows) >= 30:
                     break
             if not rows:
-                return "(ยังไม่มี MCP tools — เพิ่มด้วย soonai mcp add)"
-            return ("โหลด tools เสริมแล้ว — เรียกชื่อ mcp__* ได้ในรอบถัดไป:\n"
+                return ("(ยังไม่มี MCP tools — เพิ่มด้วย soonai mcp add/install "
+                        "หรือเช็ก soonai mcp)")
+            return ("MCP tools อยู่ใน payload แล้ว — เรียก mcp__* ได้เลย:\n"
                     + "\n".join(rows))
         if name == "outline":
             max_files = 40
@@ -2155,6 +2394,12 @@ def describe_call(name, args):
         return f"อ่าน skill {args.get('name', '')}"
     if name == "mcp_tools":
         return "ดู tools เสริม MCP"
+    if name == "web_search":
+        _q = str(args.get("query", ""))
+        return f"ค้นเว็บ: {_q[:60]}" + ("…" if len(_q) > 60 else "")
+    if name == "web_fetch":
+        _u = str(args.get("url", ""))
+        return f"ดึงหน้าเว็บ: {_u[:60]}" + ("…" if len(_u) > 60 else "")
     if name == "computer_screenshot":
         return "แคปหน้าจอ"
     if name == "computer_vision":
@@ -2200,31 +2445,7 @@ _STAFF_CTX = threading.local()  # ชื่อลูกน้องที่ก�
 _TEAM_LOCK = threading.Lock()  # กันเขียน team.json ชนกันตอนรันทีมขนาน
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 _TEST_CMD_CACHE = {"key": None, "cmds": ()}
-
-
-
-
-
-
-
-
-
-
 
 
 def _cmd_sig(name, fargs):
@@ -2275,6 +2496,7 @@ _MCP_FS_FEED = {"list_directory", "list_directory_with_sizes", "directory_tree",
                 "read_multiple_files", "search_files", "get_file_info",
                 "list_allowed_directories"}
 _MCP_FEED_BUDGET = 2000
+_MCP_RESULT_BUDGET = 4000
 _MCP_FEED_LINES = 60
 
 
@@ -2310,34 +2532,29 @@ def _mcp_tool_part(name):
 
 
 def _compact_tool_feed(name, result):
-    """ย่อผล MCP fs ก่อนยัดกลับให้โมเดล: ตัดบรรทัด/ตัวอักษรส่วนเกิน (ประหยัด token)"""
+    """ย่อผล MCP ก่อนยัดกลับให้โมเดล พร้อมบอกชัดว่าตัดส่วนใดออก"""
     try:
         text = str(result or "")
         if not text or not str(name or "").startswith("mcp__"):
             return text
-        if _mcp_tool_part(name) not in _MCP_FS_FEED:
-            return text
-        lines = text.splitlines()
-        if len(lines) > _MCP_FEED_LINES:
-            text = ("\n".join(lines[:_MCP_FEED_LINES])
-                    + f"\n… (ตัดเหลือ {_MCP_FEED_LINES}/{len(lines)} บรรทัด)")
-        if len(text) > _MCP_FEED_BUDGET:
-            text = (text[:_MCP_FEED_BUDGET]
-                    + f"\n… (ตัดเหลือ {_MCP_FEED_BUDGET}/{len(str(result))} ตัวอักษร)")
+        original_len = len(text)
+        if _mcp_tool_part(name) in _MCP_FS_FEED:
+            lines = text.splitlines()
+            if len(lines) > _MCP_FEED_LINES:
+                text = ("\n".join(lines[:_MCP_FEED_LINES])
+                        + f"\n… (ตัดเหลือ {_MCP_FEED_LINES}/{len(lines)} บรรทัด)")
+            budget = _MCP_FEED_BUDGET
+        else:
+            budget = _MCP_RESULT_BUDGET
+        if len(text) > budget:
+            text = (text[:budget]
+                    + f"\n… (ตัดเหลือ {budget}/{original_len} ตัวอักษร; เรียก tool เดิมด้วย filter/pagination ได้)")
         return text
     except Exception:
         try:
             return str(result or "")
         except Exception:
             return ""
-
-
-
-
-
-
-
-
 
 
 def workspace_root():
@@ -2491,6 +2708,8 @@ def approve(name, desc, fargs, auto_yes):
         return True
     if name == "mcp_tools":
         return True  # แค่ลิสต์รายชื่อ tools (ต่อ server เกิดตอนรัน — mcp__* ยังต้อง approve แยกทุกครั้ง)
+    if name in ("web_search", "web_fetch"):
+        return True  # อ่านเว็บสาธารณะอย่างเดียว (TinyFish บล็อก localhost/private IP ฝั่งเซิร์ฟเวอร์เอง)
     if str(name or "").startswith("mcp__") and _mcp_readonly(name):
         return True
     if (auto_yes or _ALLOW_ALL["on"]) and not force_ask and not must_ask:
@@ -2548,6 +2767,7 @@ LAST_MODEL_SWITCH = None
 _MODEL_DEAD_TTL = 600  # จำโมเดลพังชั่วคราว 10 นาที (429 ธรรมดาจำแค่ 120 วิ — ดู _failover_free)
 _MODEL_SWITCH_TTL = 1800  # switch ที่ไม่มีคน consume เกิน 30 นาที = ทิ้ง (กันของค้างข้ามวัน)
 _HEALTH_LOCK = threading.Lock()  # กัน load→pick→mark แข่งกันตอนทีมรันพร้อมกัน
+SLOW_TTL = 900        # statusline เตือน ⚠ นาน 15 นาทีหลัง timeout/ล่มล่าสุดของค่าย
 
 
 def _health_file():
@@ -2562,18 +2782,20 @@ def _health_file():
 
 
 def _health_load():
-    """โหลด {dead:{k:ts_hasta}, fails:{k:n}, cursor:{p:i}} + ตัดหมดอายุ (พัง= {} ไม่ล่ม)"""
+    """โหลด {dead:{k:ts_hasta}, fails:{k:n}, cursor:{p:i}, slow:{ค่าย:ts_timeout}} + ตัดหมดอายุ (พัง= {} ไม่ล่ม)"""
     import time as _t
-    h = {"dead": {}, "fails": {}, "cursor": {}}
+    h = {"dead": {}, "fails": {}, "cursor": {}, "slow": {}}
     try:
         d = load_json(_health_file(), {})
         if isinstance(d, dict):
-            for k in ("dead", "fails", "cursor"):
+            for k in ("dead", "fails", "cursor", "slow"):
                 if isinstance(d.get(k), dict):
                     h[k] = dict(d[k])
         now = _t.time()
         h["dead"] = {k: float(v) for k, v in h["dead"].items()
                      if isinstance(v, (int, float)) and float(v) > now}
+        h["slow"] = {k: float(v) for k, v in h["slow"].items()
+                     if isinstance(v, (int, float)) and 0 <= now - float(v) <= SLOW_TTL}
     except Exception:
         pass
     return h
@@ -2608,8 +2830,9 @@ def _health_mark_dead(h, provider, model, ttl):
         k = _health_key(provider, model)
         h.setdefault("fails", {})[k] = _health_fails(h, provider, model) + 1
         save_json(_health_file(), h)
-    except Exception:
-        pass
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:_health_mark_dead",
+                           f"จำสุขภาพโมเดล {provider}/{model} ลงดิสก์ไม่ได้ — จำในรอบนี้เท่านั้น")
     return h
 
 
@@ -2623,6 +2846,19 @@ def _health_note_ok(provider, model):
                 save_json(_health_file(), h)
     except Exception:
         pass
+
+
+def _health_note_slow(provider):
+    """บันทึกว่าค่ายนี้เพิ่ง timeout/ล่ม — statusline โชว์ ⚠ ให้เห็นทันที (ระดับค่าย)"""
+    try:
+        import time as _t
+        with _HEALTH_LOCK:
+            h = _health_load()
+            h.setdefault("slow", {})[str(provider)] = _t.time()
+            save_json(_health_file(), h)
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:_health_note_slow",
+                           f"จำ timeout ของ {provider} ไม่ได้ — statusline จะไม่โชว์ ⚠")
 
 
 def _unit_cost(provider, model, pricing):
@@ -2718,9 +2954,21 @@ def _paid_cost(pid, m, pricing):
         return float("inf")
 
 
+def _is_model_not_found(status, body_text):
+    """ตรวจเช็กว่า HTTP 400 เกิดจาก model ไม่มีอยู่จริง (ไม่ใช่ bad request ทั่วไป)"""
+    if status != 400:
+        return False
+    t = (body_text if isinstance(body_text, str) else str(body_text or ""))[:1000].lower()
+    return any(kw in t for kw in ("failed to load model", "model not found", "invalid model",
+                                   "unknown model", "does not exist", "not a valid model"))
+
+
 def _should_try_provider(status, body_text):
     """เคสที่ย้ายข้ามค่ายแล้วมีลุ้น: โควต้าตาย / ล่มชั่วคราว / key ใช้ไม่ได้ / endpoint หาย
-    400 (request ผิด) ไม่ย้าย — เปลี่ยนค่ายก็พังเหมือนเดิม"""
+    400 (request ผิด) ไม่ย้าย — เปลี่ยนค่ายก็พังเหมือนเดิม
+    ยกเว้น 400 ที่เกิดจาก model ไม่มี → สลับโมเดลได้"""
+    if _is_model_not_found(status, body_text):
+        return True
     try:
         if _quota_dead(status, body_text):
             return True
@@ -2739,7 +2987,7 @@ def _failover_free(provider, model, status, body_text, switches_done, max_switch
     global LAST_MODEL_SWITCH
     import time as _t
     transient = _transient_fail(status, body_text)
-    notfound = (status == 404)
+    notfound = (status == 404) or _is_model_not_found(status, body_text)
     if switches_done >= max_switches or (not transient and not notfound):
         return ""
     try:
@@ -2825,7 +3073,7 @@ def _failover_provider(provider, model, ttl=_QUOTA_DEAD_TTL):
         _health_mark_dead(h, provider, "", ttl)  # จำระดับค่ายด้วย (ห้ามวนกลับค่ายเดิม)
     keys = load_keys()
     for pid, pcfg in PROVIDERS.items():
-        if pid == provider or pcfg.get("type") == "anthropic":
+        if pid == provider or pcfg.get("type") == "anthropic" or pcfg.get("tool_only"):
             continue
         if _QUOTA_DEAD.get(pid, 0) > now:
             continue
@@ -2854,15 +3102,16 @@ def _failover_provider(provider, model, ttl=_QUOTA_DEAD_TTL):
             newm = _health_pick(h, pid, scored)
             try:
                 save_json(_health_file(), h)  # บันทึก cursor ที่หมุนไป
-            except Exception:
-                pass
+            except Exception as e:
+                _DBG.log_swallowed(e, "soonai.py:_failover_provider",
+                                   "บันทึก cursor การหมุนโมเดลฟรีไม่ได้ — รอบหน้าอาจหยิบตัวเดิม")
         console.print(f"[dim](โควต้า {PROVIDERS[provider]['name']} หมด — "
                       f"สลับไป {pcfg['name']} / {short_model(newm)} ให้อัตโนมัติ)[/dim]")
         return pid, newm
     # รอบสอง (ทางสุดท้าย): ฟรีหมดทุกค่ายแล้ว — ใช้ค่ายที่มี key แบบจ่ายเงิน ถูกสุดก่อน
     # (รวมตระกูล Anthropic ด้วย — มี key ถึงมา ไม่มี key ไม่แตะ)
     for pid, pcfg in PROVIDERS.items():
-        if pid == provider:
+        if pid == provider or pcfg.get("tool_only"):
             continue
         if _QUOTA_DEAD.get(pid, 0) > now:
             continue
@@ -2890,8 +3139,9 @@ def _failover_provider(provider, model, ttl=_QUOTA_DEAD_TTL):
             newm = cands[0][0]
             try:
                 save_json(_health_file(), h)
-            except Exception:
-                pass
+            except Exception as e:
+                _DBG.log_swallowed(e, "soonai.py:_failover_provider",
+                                   "บันทึก cursor ของค่ายจ่ายเงินไม่ได้ — รอบหน้าอาจหยิบตัวเดิม")
         console.print(f"[dim](ฟรีหมดทุกค่ายแล้ว — สลับไป {pcfg['name']} / "
                       f"{short_model(newm)} แบบจ่ายเงิน)[/dim]")
         return pid, newm
@@ -2905,8 +3155,9 @@ def _apply_provider_switch(new_provider, new_model, reason):
         cfg["provider"] = new_provider
         cfg["model"] = new_model
         save_json(CONFIG_FILE, cfg)
-    except Exception:
-        pass
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:_apply_provider_switch",
+                           f"จำการย้ายไปค่าย {new_provider} ไม่ได้ — รอบหน้าจะกลับไปใช้ค่าเดิม")
     try:
         console.print(Panel(
             f"[bold]{PROVIDERS[new_provider]['name']}[/bold] / {new_model}\n"
@@ -2950,8 +3201,9 @@ def apply_model_switch(provider, model, keys, cfg, sw=None):
     cfg["model"] = model
     try:
         save_json(CONFIG_FILE, cfg)
-    except Exception:
-        pass
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:apply_model_switch",
+                           f"จำโมเดลที่สลับอัตโนมัติ ({model}) ไม่ได้ — รอบหน้าจะกลับไปใช้ค่าเดิม")
     console.print(Panel(f"[bold]{PROVIDERS[provider]['name']}[/bold] / {model}\n"
                         f"[dim]สลับอัตโนมัติจาก {sw['from']} (ใช้ไม่ได้)[/dim]",
                         title="SoonAI chat", border_style="cyan"))
@@ -2968,29 +3220,9 @@ AGENT_MAX_STEPS = None    # ตั้งจาก CLI --max-steps (None = ใช
 USAGE = {"calls": 0, "in": 0, "out": 0, "cost": 0.0}
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def _kfmt(n):
     n = int(n or 0)
     return str(n) if n < 1000 else f"{n / 1000:.1f}k"
-
-
-
-
-
-
 
 
 def _agent_step_cap(max_steps):
@@ -3209,6 +3441,7 @@ def _agent_loop(driver, messages, auto_yes=False, on_text=None, max_steps=None,
     import itertools
     cap = _agent_step_cap(max_steps)
     ctx_dropped = 0
+    net_fails = 0   # timeout/conn ต่อเนื่อง (กันวน failover ทั้งวันเมื่อเน็ตบ้านดับ)
     for step_i in (range(cap) if cap else itertools.count()):
         steps = step_i + 1
         messages, _fit_dropped = fit_messages(messages)
@@ -3219,10 +3452,49 @@ def _agent_loop(driver, messages, auto_yes=False, on_text=None, max_steps=None,
         with console.status(f"[cyan]กำลังคิด… (agent รอบ {step_i + 1})[/]", spinner="dots"):
             url, headers, payload, tag = driver.request(messages, force_first, step_i == 0)
             try:
-                r = _post_chat(url, headers=headers, payload=payload, timeout=180,
+                r = _post_chat(url, headers=headers, payload=payload,
+                               timeout=_chat_timeout(False),
                                stream=False, tag=tag, retries=driver.retries)
             except Exception as e:
-                return collected, f"ERROR: {e}", used, _agent_info(steps, tools_log, cap, False)
+                if not _is_timeout_error(e):
+                    return (collected, f"ERROR: {e}", used,
+                            _agent_info(steps, tools_log, cap, False))
+                net_fails += 1
+                friendly = _friendly_timeout(e)
+                _health_note_slow(driver.provider_key)
+                if net_fails > 2:
+                    # เน็ต/ค่ายล่มต่อเนื่อง — พอแล้ว คืน error ไทยให้อ่านรู้เรื่อง
+                    return (collected, f"ERROR: {friendly}", used,
+                            _agent_info(steps, tools_log, cap, False))
+                newm = ""
+                try:
+                    newm = _failover_free(driver.provider_key, driver.model, 504,
+                                          friendly, switches)
+                except Exception:
+                    newm = ""
+                if newm:
+                    switched = {"provider": driver.provider_key, "from": driver.model,
+                                "to": newm, "ts": time.time()}
+                    driver.model = newm
+                    switches += 1
+                    continue
+                np = nm = ""
+                nd = None
+                if driver.can_switch_provider:
+                    _old_p, _old_m = driver.provider_key, driver.model
+                    try:
+                        np, nm = _failover_provider(_old_p, _old_m, ttl=1800)
+                        nd = _agent_switch_driver(driver, np, nm) if np else None
+                    except Exception:
+                        nd = None
+                if np and nd:
+                    driver = nd
+                    _apply_provider_switch(np, nm, "อ่านคำตอบเกินเวลา — ลองค่ายอื่น")
+                    switched = {"provider": np, "from": _old_m, "to": nm,
+                                "ts": time.time(), "from_provider": _old_p}
+                    continue
+                return (collected, f"ERROR: {friendly}", used,
+                        _agent_info(steps, tools_log, cap, False))
             if (driver.can_drop_tools and r.status_code == 404 and "tools" in payload
                     and _is_tools_unsupported(r)):
                 # ปลายทางไม่มี endpoint รองรับ tools — ยิงใหม่แบบข้อความ แล้วอ่านคำสั่งจากข้อความ
@@ -3234,10 +3506,15 @@ def _agent_loop(driver, messages, auto_yes=False, on_text=None, max_steps=None,
                         pass
                     console.print("[dim](ปลายทางไม่รองรับ tools — ตอบเป็นข้อความแล้วอ่านคำสั่งแทน)[/dim]")
                     try:
-                        r = _post_chat(url, headers=headers, payload=plain, timeout=180,
+                        r = _post_chat(url, headers=headers, payload=plain,
+                                       timeout=_chat_timeout(False),
                                        stream=False, tag=tag, retries=driver.fallback_retries)
                     except Exception as e:
-                        return collected, f"ERROR: {e}", used, _agent_info(steps, tools_log, cap, False)
+                        if _is_timeout_error(e):
+                            _health_note_slow(driver.provider_key)
+                        _m = _friendly_timeout(e) if _is_timeout_error(e) else str(e)
+                        return (collected, f"ERROR: {_m}", used,
+                                _agent_info(steps, tools_log, cap, False))
             if r.status_code != 200:
                 try:
                     body = r.text[:800]
@@ -3515,6 +3792,7 @@ def agent_chat(provider, model, messages, temperature, auto_yes=False, on_text=N
     """วนลูปเรียก tool จนงานเสร็จ ไม่จำกัดก้าว (หยุดเมื่อโมเดลเลิกเรียก tool / error / Ctrl+C)
     กระตุ้นซ้ำ 1 รอบถ้าโมเดลไม่เรียก tool ทั้งที่ควรเรียก
     คืน (ข้อความรวม, error หรือ '', จำนวน tool ที่รัน, info)"""
+    ensure_clarify_rules(messages)
     _ensure_mcp_hint(messages)
     _ensure_skills_hint(messages)
     # auto-suggest: งานนี้ตรงกับ skill ที่ยังไม่ติดตั้งไหม (ถามก่อนติดตั้งเสมอ)
@@ -3927,9 +4205,14 @@ def maybe_reflect(provider, model, history, sid):
         console.print()
 
 def load_json(path, default):
+    """อ่าน JSON — ไฟล์หาย = ค่าเริ่มต้นเงียบ ๆ (ยังไม่ตั้งค่าครั้งแรก)
+    แต่ไฟล์มีอยู่แล้วอ่านไม่ได้ (พัง/สิทธิ์/ถูกล็อก) = เก็บ traceback ลง debug log"""
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
-    except Exception:
+    except FileNotFoundError:
+        return default
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:load_json", f"อ่าน {path} ไม่ได้ — ใช้ค่าเริ่มต้น")
         return default
 
 
@@ -3989,7 +4272,8 @@ def _dpapi_blob_call(fn_name, data):
                 kernel32.LocalFree(blob_out.pbData)
             except Exception:
                 pass
-    except Exception:
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:_dpapi_blob_call", f"เรียก {fn_name} ไม่สำเร็จ")
         return None
 
 
@@ -4038,8 +4322,8 @@ def save_keys(keys):
     save_json(KEYS_FILE, out)
     try:
         os.chmod(KEYS_FILE, 0o600)  # Windows = read-only bit, POSIX = rw เจ้าของเท่านั้น
-    except Exception:
-        pass
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:save_keys", "ตั้งสิทธิ์ไฟล์ keys ไม่ได้ (key ยังถูกบันทึกแล้ว)")
 
 
 def load_keys():
@@ -4089,6 +4373,14 @@ def load_config():
     # เติม system prompt คุณภาพเฉพาะตอนไฟล์ยังไม่มีค่านี้ (ไม่ทับค่าที่ผู้ใช้ตั้งไว้เอง)
     if not cfg.get("system"):
         cfg["system"] = QUALITY_SYSTEM
+        try:
+            save_json(CONFIG_FILE, cfg)
+        except Exception:
+            pass
+    # ต่อกฎจัดการข้อความกำกวมเข้า system prompt เมื่อยังไม่มี (นับ marker ใน CLARIFY_RULES)
+    # ครอบทั้ง default เก่าที่เคยเซฟค้างและค่าที่ผู้ใช้เขียนเอง — ต่อท้ายไม่ทับข้อความเดิม ทำครั้งเดียว
+    elif CLARIFY_MARKER not in str(cfg.get("system")):
+        cfg["system"] = str(cfg["system"]).rstrip() + " " + CLARIFY_RULES
         try:
             save_json(CONFIG_FILE, cfg)
         except Exception:
@@ -4143,17 +4435,22 @@ def _migrate_legacy_sessions(dest=None, sources=None):
     for src in sources:
         try:
             files = sorted(Path(src).glob("*.json"))
-        except Exception:
+        except Exception as e:
+            _DBG.log_swallowed(e, "soonai.py:_migrate_legacy_sessions",
+                               f"อ่านรายการ session เก่าใน {src} ไม่ได้ — ข้ามโฟลเดอร์นี้")
             continue
         for f in files:
             try:
                 if f.resolve() == (dest / f.name).resolve():
                     continue
-            except Exception:
-                pass
+            except Exception as e:
+                _DBG.log_swallowed(e, "soonai.py:_migrate_legacy_sessions",
+                                   f"เทียบพาธของ session {f.name} ไม่ได้ — ไปต่อ")
             try:
                 new = json.loads(f.read_text(encoding="utf-8"))
-            except Exception:
+            except Exception as e:
+                _DBG.log_swallowed(e, "soonai.py:_migrate_legacy_sessions",
+                                   f"ไฟล์ session เก่า {f.name} อ่านไม่ได้ — ข้ามไฟล์นี้")
                 continue
             # อันไหนอันนั้น: ย้ายเฉพาะไฟล์ sessions จริง (มี messages)
             # ไฟล์อื่น (mcp.json, skills, ฯลฯ) หลงมาอยู่ตรงนี้ก็ไม่แตะ
@@ -4170,8 +4467,9 @@ def _migrate_legacy_sessions(dest=None, sources=None):
                             f.unlink()  # ในเครื่องใหม่กว่า ลบตัวซ้ำเก่าทิ้ง
                         # ถ้าในเครื่องเก่ากว่า: เก็บ legacy ไว้ที่เดิม ไม่ทับของใหม่
                         continue
-                except Exception:
-                    pass
+                except Exception as e:
+                    _DBG.log_swallowed(e, "soonai.py:_migrate_legacy_sessions",
+                                       f"เทียบเวลาของ session ซ้ำ {f.name} ไม่ได้ — เก็บเป็น -legacy")
                 # เทียบไม่ได้ (ไฟล์พัง/ไม่มีเวลา) = ย้ายแบบเปลี่ยนชื่อ กันข้อมูลหาย
                 alt = dest / f"{f.stem}-legacy.json"
                 if not alt.exists():
@@ -4179,8 +4477,9 @@ def _migrate_legacy_sessions(dest=None, sources=None):
                         alt.write_text(f.read_text(encoding="utf-8"), encoding="utf-8")
                         f.unlink()
                         moved += 1
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _DBG.log_swallowed(e, "soonai.py:_migrate_legacy_sessions",
+                                           f"เก็บ session ซ้ำ {f.name} เป็น -legacy.json ไม่ได้")
                 continue
             try:
                 nm = new.get("name", "")
@@ -4191,8 +4490,9 @@ def _migrate_legacy_sessions(dest=None, sources=None):
                                   encoding="utf-8")
                 f.unlink()
                 moved += 1
-            except Exception:
-                pass
+            except Exception as e:
+                _DBG.log_swallowed(e, "soonai.py:_migrate_legacy_sessions",
+                                   f"ย้าย session เก่า {f.name} เข้าโฟลเดอร์ใหม่ไม่ได้")
     return moved
 
 
@@ -4203,7 +4503,9 @@ def list_sessions():
     for f in SESSIONS_DIR.glob("*.json"):
         try:
             d = json.loads(f.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception as e:
+            _DBG.log_swallowed(e, "soonai.py:list_sessions",
+                               f"ไฟล์ session เสียหาย — ข้าม {f.name}")
             continue
         # อันไหนอันนั้น: ข้ามไฟล์ที่ไม่ใช่ sessions (mcp/skills/ไฟล์อื่น)
         if not isinstance(d, dict) or not isinstance(d.get("messages"), list):
@@ -4224,6 +4526,10 @@ def list_sessions():
             (users[0] if users else "")
         try:
             shown = _clean_title(fix_mojibake(raw_name)) or "-"
+            # ชื่อยังมั่ว (ทักทาย/คำสั่ง/ถูกตัด) → โชว์ข้อความแรกที่สื่อหัวข้อได้แทน
+            # (โชว์อย่างเดียว ไม่แตะไฟล์ — หัวข้อจริงค่อยให้ AI สร้างตอน resume/save)
+            if _title_is_weak(shown):
+                shown = _fallback_title(msgs) or shown
         except Exception:
             shown = "-"
         out.append({"id": f.stem, "name": shown,
@@ -4270,6 +4576,128 @@ def _overlap_len(old, tail, cap):
     return 0
 
 
+# คำ/โครงที่ไม่ใช่หัวข้อจริง (ทักทาย · คำสั่ง · โครงสร้างที่ boost แต่งไว้)
+_TITLE_WEAK_PREFIXES = ("เป้าหมาย:", "บริบท:", "คำถาม:", "goal:", "context:", "question:")
+_TITLE_WEAK_MIN = 8          # สั้นกว่านี้ = ไม่สื่อหัวข้อ (เช่น 'สวัดดี', 'hi')
+
+
+def _title_is_weak(name):
+    """ชื่อหัวข้อใช้ไม่ได้ (ทักทาย/คำสั่ง/ถูกตัด/ขึ้นต้นโครง boost) → ควรสร้างใหม่
+
+    เดิมหัวข้อ = ข้อความแรกของผู้ใช้ ซึ่งมักเป็น 'สวัดดี' · 'hi' · '/test ...'
+    หรือ prompt ที่ boost แต่งแล้วถูกตัดกลางคำ → ดูมั่ว ไม่ตรงประเด็น"""
+    s = str(name or "").strip()
+    if not s:
+        return True
+    if s.startswith("/"):                    # '/test git --version → ผ่าน'
+        return True
+    low = s.lower().rstrip("!?.")
+    if low in _BOOST_SKIP:                   # 'สวัสดี' · 'hi' · 'thanks'
+        return True
+    if s.lower().startswith(_TITLE_WEAK_PREFIXES):   # 'เป้าหมาย: ...' (โครง boost)
+        return True
+    return len(s) < _TITLE_WEAK_MIN
+
+
+def gen_session_title(provider, model, messages, temperature=0.2):
+    """สร้างหัวข้อสั้น ๆ ที่ตรงประเด็นจากบทสนทนาจริง (คืน '' ถ้าสร้างไม่ได้)
+
+    ต่างจากเดิม (เอาข้อความแรกมาตัด) ตรงที่ดู "ทั้งบทสนทนา" แล้วสรุปเป็นหัวข้อ"""
+    convo = []
+    for m in messages or []:
+        if not isinstance(m, dict):
+            continue
+        role = m.get("role", "")
+        if role not in ("user", "assistant"):
+            continue
+        c = str(m.get("content") or "").strip()
+        if not c or c.startswith(COMPACT_MARK):
+            continue
+        convo.append(f"{role}: {c[:400]}")
+        if len(convo) >= 8:
+            break
+    if len(convo) < 2:
+        return ""     # ยังคุยไม่ถึง 2 รอบ = ยังสรุปหัวข้อไม่ได้
+    msgs = [{"role": "system",
+             "content": ("ตั้งหัวข้อบทสนทนาภาษาไทยให้สั้นและตรงประเด็นที่สุด ไม่เกิน 7 คำ "
+                         "จับสาระหลักของบทสนทนา (ไม่ใช่คำทักทาย) "
+                         "ตอบเฉพาะหัวข้อบรรทัดเดียว ห้ามมีเครื่องหมายคำพูด ห้ามมีคำนำ ห้ามเครื่องหมาย markdown")},
+            {"role": "user", "content": "\n".join(convo)}]
+    try:
+        out = send_messages(provider, model, msgs, temperature,
+                            stream=False, effort="", max_tokens=60)
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:gen_session_title",
+                           "สร้างหัวข้อ session ไม่ได้ — ใช้ชื่อเดิมต่อ")
+        return ""
+    title = _clean_title(fix_mojibake(str(out or "").strip().strip('"')), limit=60)
+    # โมเดลยังคืนของมั่ว/คำทักทาย → ถือว่าสร้างไม่สำเร็จ
+    return "" if _title_is_weak(title) else title
+
+
+_TITLE_ATTEMPT_MAX = 3       # เพดานลองให้ AI สร้างหัวข้อ (กันยิงซ้ำทุกเทิร์นเมื่อโมเดลพัง)
+
+
+def _title_needs_ai(d, force=False):
+    """True = ยังต้องให้ AI สร้างหัวข้อ (ชื่อมั่ว/ว่าง · ยังไม่เคยสร้าง · ยังไม่เกินเพดานลอง)
+
+    เช็กแบบ cheap ไม่ยิง AI — เรียกก่อนเปิดสปินเนอร์กันกะพริบฟรีทุกเทิร์น"""
+    if not isinstance(d, dict):
+        return False
+    if force:
+        return True
+    if d.get("title_ai"):
+        return False                              # ให้ AI สร้างแล้ว = พอ
+    if int(d.get("title_attempts", 0) or 0) >= _TITLE_ATTEMPT_MAX:
+        return False                              # ลองครบเพดานแล้ว = อย่าซ้ำ
+    return _title_is_weak(str(d.get("name", "") or ""))
+
+
+def _fallback_title(msgs):
+    """หัวข้อสำรอง (ไม่ยิง AI) — เอาข้อความแรกที่พอสื่อหัวข้อได้
+    ข้ามคำทักทาย/คำสั่ง/ข้อความสั้นที่ดูมั่ว เช่น 'สวัดดี' · 'hi' · '/test ...'"""
+    for m in msgs or []:
+        if not isinstance(m, dict) or m.get("role") != "user":
+            continue
+        t = _clean_title(fix_mojibake(str(m.get("content") or "")), limit=40)
+        if t and not _title_is_weak(t):
+            return t
+    return ""
+
+
+def ensure_session_title(sid, provider, model, messages, force=False):
+    """ถ้าหัวข้อ session ยังมั่ว/ว่าง → สร้างหัวข้อจาก AI แล้วบันทึก คืนชื่อปัจจุบัน
+
+    ทำงานอย่างมาก 1 ครั้งต่อ session (กันด้วยธง title_ai · เพดาน title_attempts)
+    force=True = สร้างใหม่ถึงแม้ชื่อเดิมจะดูดี (ใช้ตอนผู้ใช้สั่ง /rename auto)"""
+    f = SESSIONS_DIR / f"{sid}.json"
+    try:
+        d = json.loads(f.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(d, dict):
+        return ""
+    cur = str(d.get("name", "") or "")
+    if not _title_needs_ai(d, force):
+        return cur
+    d["title_attempts"] = int(d.get("title_attempts", 0) or 0) + 1
+    msgs = d.get("messages", [])
+    new = gen_session_title(provider, model, msgs)
+    if not new:
+        new = _fallback_title(msgs)     # AI ไม่ได้ = ใช้หัวข้อสำรองก่อน (ไม่ให้ค้างชื่อมั่ว)
+        if new:
+            d["name"] = new             # ไม่ปิดธง title_ai — AI ยังสู้ต่อได้ภายหลัง
+    else:
+        d["name"] = new
+        d["title_ai"] = True
+    try:
+        _atomic_write_text(f, json.dumps(d, ensure_ascii=False, indent=2))
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:ensure_session_title",
+                           "บันทึกหัวข้อ session ไม่ได้")
+    return str(d.get("name", "") or "")
+
+
 def save_session(sid, provider, model, messages, name=""):
     """บันทึกบทสนทนาลงไฟล์ (เก็บ 100 ข้อความล่าสุด) เกิน MAX_SESSIONS ลบที่ใช้น้อยสุดทิ้ง คืน id
     ถ้า messages ผ่านการย่อประวัติ จะต่อส่วนใหม่ท้ายของเดิมที่บันทึกไว้ — แชทเก่าไม่หาย"""
@@ -4294,14 +4722,18 @@ def save_session(sid, provider, model, messages, name=""):
         merged = old_non_sys + tail[_overlap_len(old_non_sys, tail, COMPACT_KEEP):]
         messages = sys_msgs + merged
     users = [m.get("content", "") for m in messages if m.get("role") == "user"]
-    d = {"id": sid, "created": old.get("created", now), "updated": now,
+    # เผย field เก่าไว้ก่อน (title_ai/title_attempts/...) — ไม่งั้นธงหัวข้อถูกเช็ดทุกเทิร์น
+    # แล้ว AI จะถูกยิงสร้างหัวข้อซ้ำแล้วซ้ำเล่า
+    d = {**(old if isinstance(old, dict) else {}),
+         "id": sid, "created": old.get("created", now), "updated": now,
          "provider": provider, "model": model,
          "name": _clean_title(name or old.get("name") or (users[0] if users else "")),
          "messages": messages[-100:]}
     try:
         _atomic_write_text(f, json.dumps(d, ensure_ascii=False, indent=2))
-    except Exception:
-        pass
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:save_session",
+                           f"เขียน session {sid} ไม่ได้ — ประวัติรอบนี้จะหาย")
     try:
         keep = _max_sessions()
         removed = []
@@ -4310,13 +4742,15 @@ def save_session(sid, provider, model, messages, name=""):
                 try:
                     (SESSIONS_DIR / f"{it['id']}.json").unlink()
                     removed.append(it["id"])
-                except Exception:
-                    pass
+                except Exception as e:
+                    _DBG.log_swallowed(e, "soonai.py:save_session",
+                                       f"ลบ session เก่า {it['id']} ไม่ได้ — จะค้างในโฟลเดอร์")
         if removed:
             console.print(f"[dim](เก็บ session ล่าสุด {keep} อัน — ลบเก่า {len(removed)} อัน · "
                           f"ปรับได้ที่ config max_sessions)[/dim]")
-    except Exception:
-        pass
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:save_session",
+                           f"กวาด session เก่าไม่ได้ (เก็บไว้ {keep}) — โฟลเดอร์จะบวมขึ้น")
     return sid
 
 
@@ -4485,6 +4919,20 @@ def _mcp_status_table(status, tools_by_server=None):
     return table
 
 
+def mcp_catalog_load():
+    """อ่าน shared/mcp_catalog.json (หาย/พัง = {} — ไม่พังคำสั่ง) คืน {ชื่อ: spec}"""
+    try:
+        d = json.loads((SHARED_DIR / "mcp_catalog.json").read_text(encoding="utf-8"))
+        if not isinstance(d, dict):
+            return {}
+        return {k: v for k, v in (d.get("servers") or {}).items()
+                if isinstance(v, dict)}
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:mcp_catalog_load",
+                           "อ่าน mcp_catalog.json ไม่ได้ — 'mcp install' จะใช้ไม่ได้")
+        return {}
+
+
 def cmd_mcp(args, keys=None, cfg=None):
     """จัดการ MCP servers (tools เสริมให้ agent ผ่าน stdio)"""
     if not _MCP_OK:
@@ -4508,6 +4956,53 @@ def cmd_mcp(args, keys=None, cfg=None):
                 env[k.strip()] = v
         console.print(hub.add_server(name, rest[0], rest[1:], env))
         agent_tools(refresh=True)
+        return 0
+    if action == "catalog":
+        cat = mcp_catalog_load()
+        if not cat:
+            console.print("[yellow]อ่าน mcp_catalog.json ไม่ได้หรือยังว่าง[/yellow]")
+            return 1
+        table = neo_table(title="MCP catalog — ติดตั้งด้วย soonai mcp install <ชื่อ>",
+                          show_lines=False)
+        table.add_column("ชื่อ", style="cyan")
+        table.add_column("คำอธิบาย", style="white")
+        table.add_column("หมวด", justify="center")
+        installed = hub.servers()
+        for nm, sp in cat.items():
+            mark = "[green]ติดตั้งแล้ว[/green] " if nm in installed else ""
+            table.add_row(nm, mark + str(sp.get("description", ""))[:70],
+                          str(sp.get("category", "")))
+        console.print(table)
+        return 0
+    if action == "install":
+        name = target
+        cat = mcp_catalog_load()
+        if not name:
+            console.print("[yellow]ดูรายชื่อ: soonai mcp catalog · "
+                          "ติดตั้ง: soonai mcp install <ชื่อ>[/yellow]")
+            return 1
+        spec = cat.get(name)
+        if not spec:
+            hint = ", ".join(list(cat)[:8]) or "(ว่าง)"
+            console.print(f"[red]ไม่มี '{name}' ใน mcp_catalog.json[/red] "
+                          f"[dim](ที่มี: {hint})[/dim]")
+            return 1
+        merged = dict(spec)
+        env = {k: v for k, v in (spec.get("env") or {}).items()
+               if isinstance(v, str)}
+        for kv in getattr(args, "env", []) or []:
+            if "=" in kv:
+                k, v = kv.split("=", 1)
+                env[k.strip()] = v
+        merged["env"] = env
+        console.print(hub.add_server_spec(name, merged))
+        agent_tools(refresh=True)
+        if spec.get("requires_auth"):
+            console.print("[dim]server นี้ต้อง auth — ครั้งแรกที่เรียก mcp__* จะมีขั้นตอน "
+                          "ลงชื่อเข้าใช้ (OAuth เปิดเบราว์เซอร์) · ใส่ค่าเพิ่มด้วย --env KEY=VAL"
+                          "[/dim]")
+        console.print(f"[dim]ทดสอบ: soonai mcp test {name} · "
+                      f"ดู tools: soonai mcp tools {name}[/dim]")
         return 0
     if action == "rm":
         if not target:
@@ -4534,10 +5029,8 @@ def cmd_mcp(args, keys=None, cfg=None):
         if not spec:
             console.print(f"[yellow]ไม่มี server '{target}'[/yellow]")
             return 1
-        from mcp_client import MCPClient, expand_mcp_spec
-        spec = expand_mcp_spec(spec)
-        c = MCPClient(spec.get("command", ""), spec.get("args", []),
-                      spec.get("env", {}), spec.get("cwd"))
+        from mcp_client import client_for_spec
+        c = client_for_spec(spec, label=target)
         try:
             info = c.connect(timeout=30)
             tools = c.list_tools()
@@ -4568,6 +5061,8 @@ def cmd_mcp(args, keys=None, cfg=None):
     status = hub.status()
     if not status:
         console.print("[dim]ยังไม่มี MCP server — เพิ่มด้วย:\n"
+                      "  soonai mcp catalog  (ดูของสำเร็จรูป เช่น tinyfish)\n"
+                      "  soonai mcp install <ชื่อ>\n"
                       "  soonai mcp add <ชื่อ> -- <คำสั่ง> [args...]\n"
                       "เช่น: soonai mcp add fs -- npx -y @modelcontextprotocol/server-filesystem C:/Shop[/dim]")
         return 0
@@ -4585,17 +5080,21 @@ def cmd_mcp(args, keys=None, cfg=None):
         for _name, _spec in hub.servers().items():
             try:
                 _ex = _expand(_spec)
-                _parts = [str(_ex.get("command", ""))] + \
-                    [str(a) for a in (_ex.get("args") or [])]
-                _line = " ".join(p for p in _parts if p)
+                if _ex.get("url") and not _ex.get("command"):
+                    _line = str(_ex.get("url", ""))
+                else:
+                    _parts = [str(_ex.get("command", ""))] + \
+                        [str(a) for a in (_ex.get("args") or [])]
+                    _line = " ".join(p for p in _parts if p)
             except Exception:
                 _line = ""
             if _line:
                 console.print(f"[dim]· {_name} → {_line[:130]}[/dim]")
     except Exception:
         pass
-    console.print("[dim]soonai mcp tools [ชื่อ] · test <ชื่อ> · on/off/rm <ชื่อ> · refresh · "
-                  "ในห้องแชทใช้ /mcp · ${cwd} ใน args = ตามโฟลเดอร์ปัจจุบัน[/dim]")
+    console.print("[dim]soonai mcp catalog · install <ชื่อ> · tools [ชื่อ] · test <ชื่อ> · "
+                  "on/off/rm <ชื่อ> · refresh · ในห้องแชทใช้ /mcp · "
+                  "${cwd} ใน args = ตามโฟลเดอร์ปัจจุบัน[/dim]")
     return 0
 
 
@@ -4616,8 +5115,9 @@ def _write_models_cache(cache):
         MODELS_CACHE_FILE.write_text(
             json.dumps(cache, ensure_ascii=False, indent=2)[:2000000],
             encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:_write_models_cache",
+                           "เขียน cache รายการโมเดลไม่ได้ — จะดึงรายการใหม่ทุกครั้ง")
 
 
 def _fetch_models_live(provider):
@@ -4721,7 +5221,9 @@ def get_models(provider, refresh=False):
                 pass
     try:
         models, pricing = _fetch_models_live(provider)
-    except Exception:
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:get_models",
+                           f"ดึงรายการโมเดลของ {provider} ไม่ได้ — ใช้รายการสำรอง")
         return fallback, {}
     try:
         cache[provider] = {"v": 2, "ts": _t.time(),
@@ -4754,6 +5256,10 @@ _STATUS_CACHE = {"t": 0.0, "extra": None, "ttl": 5.0}
 
 
 def require_usable(provider, keys):
+    if PROVIDERS[provider].get("tool_only"):
+        return (f"{PROVIDERS[provider]['name']} ไม่ใช่ค่ายแชท (ไม่มี endpoint คุยโมเดล) — "
+                "ใช้เป็นเครื่องมือ web ของ agent แทน (web_search/web_fetch · "
+                "soonai mcp install tinyfish)")
     if not PROVIDERS[provider].get("no_key") and not get_key(provider, keys):
         return (f"ยังไม่มี key ของ {PROVIDERS[provider]['name']} "
                 f"— รันคำสั่ง: soonai setup  หรือ  soonai key set {provider} YOUR_KEY")
@@ -4781,15 +5287,15 @@ def fix_mojibake(text):
 
 def _debug_dump(tag, resp):
     try:
-        if os.environ.get("SOONAI_DEBUG"):
+        if _DBG.enabled():
             body = resp.content[:20000].decode("utf-8", errors="replace")
             (BASE_DIR / "debug_last.json").write_text(
                 json.dumps({"tag": tag, "status": resp.status_code,
                             "content_type": resp.headers.get("Content-Type", ""),
                             "body": body}, ensure_ascii=False, indent=2),
                 encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:_debug_dump", "เขียน debug_last.json ไม่ได้")
 
 
 def _friendly_conn_error(url, e):
@@ -4804,6 +5310,78 @@ def _friendly_conn_error(url, e):
         return ("เชื่อมต่อ LM Studio ไม่ได้ (ยังไม่รัน) — เปิด LM Studio → "
                 "โหลดโมเดล → กด Start Server (port 1234) แล้วลองใหม่")
     return None
+
+
+class NetTimeoutError(RuntimeError):
+    """อ่าน/ต่อเครือข่ายเกินเวลา — ต่างจาก error ของคำขอตรงที่
+    ระบบ retry/failover ต่อได้ (ไม่ใช่ความผิดของ key/payload)"""
+
+
+_NET_TIMEOUT_KW = ("read timed out", "read timeout", "timed out", "timeout error",
+                   "connection aborted", "connection reset", "connection broken",
+                   "incompleteread", "max retries exceeded", "name resolution",
+                   "proxy error", "ssl:", "socket timeout")
+
+
+def _is_read_timeout(e):
+    """server รับคำขอแล้วแต่ตอบ/ส่งช้าเกิน read timeout (ลองซ้ำก็ช้าเหมือนเดิม)"""
+    try:
+        import requests as _rq
+        if isinstance(e, _rq.exceptions.ReadTimeout):
+            return True
+    except Exception:
+        pass
+    s = str(e or "").lower()
+    return "read timed out" in s or "read timeout" in s
+
+
+def _is_timeout_error(e):
+    """Exc เครือข่าย/timeout ไหม (รวม string ดิบจาก urllib3 ที่ leak ออกมา)"""
+    if isinstance(e, NetTimeoutError):
+        return True
+    try:
+        import requests as _rq
+        if isinstance(e, (_rq.exceptions.Timeout, _rq.exceptions.ConnectionError)):
+            return True
+    except Exception:
+        pass
+    s = str(e or "").lower()
+    return any(kw in s for kw in _NET_TIMEOUT_KW)
+
+
+def _friendly_timeout(e):
+    """ข้อความไทยสำหรับ timeout/conn — ไม่โชว์ string ดิบของ urllib3 ให้ผู้ใช้อีก"""
+    return ("เชื่อมต่อ/อ่านคำตอบเกินเวลา (ค่ายตอบช้าหรือเครือข่ายไม่เสถียร) — "
+            "ระบบลองใหม่และสลับโมเดล/ค่ายให้แล้ว ถ้ายังเจอซ้ำ: ปรับเวลาใน soonai setup "
+            "(หน้า Timeout) หรือเพิ่ม chat_timeout (วินาที) ใน shared/config.json")
+
+
+def _chat_timeout(stream):
+    """timeout ของคำขอแชททุกค่าย: คืน (connect, read) วินาที
+    - read ของ non-stream = ทั้งคำตอบมาทีเดียว → ต้องนาน (คำตอบยาว/thinking นาน เดิม 120s สั้นไป)
+    - read ของ stream = เว้นช่วงระหว่าง chunk → พอประมาณ (โมเดล thinking บางตัวเงียบยาว)
+    ทับได้ด้วย chat_timeout / connect_timeout ใน shared/config.json"""
+    try:
+        cfg = load_config() or {}
+    except Exception:
+        cfg = {}
+    key = "chat_timeout_stream" if stream else "chat_timeout"
+    try:
+        read = int(cfg.get(key) or 0)
+    except Exception:
+        read = 0
+    if read <= 0 and stream:
+        try:
+            read = int(cfg.get("chat_timeout") or 0)  # legacy: ค่าเดียวใช้ทั้งสองแบบ
+        except Exception:
+            read = 0
+    if read <= 0:
+        read = 180 if stream else 240
+    try:
+        conn = int(cfg.get("connect_timeout") or 15)
+    except Exception:
+        conn = 15
+    return (max(5, conn), max(30, read))
 
 
 def _wait_animated(seconds, text, _console=None):
@@ -4856,9 +5434,13 @@ def _post_chat(url, headers, payload, timeout, stream, tag, retries=2):
             if friendly:
                 raise RuntimeError(friendly)
             last_exc = e
-            if i < retries:
+            # read timeout = server รับแล้วแต่ช้า — ลองซ้ำก็ช้าเหมือนเดิม
+            # ข้าม retry เด้งไปให้ failover (สลับโมเดล/ค่าย) จัดการเลย
+            if i < retries and not _is_read_timeout(e):
                 _wait_animated(2 * (i + 1), "(เชื่อมต่อล่ม — รอแล้วลองใหม่…)")
                 continue
+            if _is_timeout_error(e):
+                raise NetTimeoutError(_friendly_timeout(e)) from None
             raise
         r.encoding = "utf-8"
         _debug_dump(tag, r)
@@ -4877,8 +5459,6 @@ def _post_chat(url, headers, payload, timeout, stream, tag, retries=2):
             continue
         return r
     raise last_exc
-
-
 
 
 def _effort():
@@ -4927,7 +5507,8 @@ class _ChatDriver:
 
     def send(self, url, headers, payload):
         """ยิงคำขอ 1 ครั้ง (+ retry เฉพาะค่ายถ้ามี)"""
-        return _post_chat(url, headers=headers, payload=payload, timeout=180,
+        return _post_chat(url, headers=headers, payload=payload,
+                          timeout=_chat_timeout(self.stream),
                           stream=self.stream, tag=self.tag)
 
     def read(self, resp, emit):
@@ -5000,7 +5581,8 @@ class _OpenAIChatDriver(_ChatDriver):
 
     def _post_strip(self, url, headers, payload):
         """ยิง + ถ้า 400 เพราะพารามิเตอร์ไม่รองรับ ให้ตัดตัวนั้นแล้วลองใหม่"""
-        r = _post_chat(url, headers=headers, payload=payload, timeout=180,
+        r = _post_chat(url, headers=headers, payload=payload,
+                       timeout=_chat_timeout(self.stream),
                        stream=self.stream, tag=self.tag)
         if r.status_code == 400:
             low = _resp_body(r, 600).lower()
@@ -5017,7 +5599,8 @@ class _OpenAIChatDriver(_ChatDriver):
                 except Exception:
                     pass
                 console.print(f"[dim](ค่ายนี้ไม่รับ {', '.join(drop)} — ลองใหม่แบบไม่มี)[/dim]")
-                r = _post_chat(url, headers=headers, payload=payload, timeout=180,
+                r = _post_chat(url, headers=headers, payload=payload,
+                               timeout=_chat_timeout(self.stream),
                                stream=self.stream, tag=self.tag)
         return r
 
@@ -5042,30 +5625,38 @@ class _OpenAIChatDriver(_ChatDriver):
             emit(text)
             return text, (j.get("choices") or [{}])[0].get("finish_reason", "")
         full, finish = "", ""
-        for line in resp.iter_lines(decode_unicode=True):
-            if not line:
-                continue
-            s = line.strip()
-            if not s.startswith("data:"):
-                continue
-            data = s[5:].strip()
-            if data == "[DONE]":
-                break
-            try:
-                j = json.loads(data)
-            except Exception:
-                continue
-            if not isinstance(j, dict):
-                continue
-            if j.get("error"):
-                raise RuntimeError(format_api_error(self.provider_key, 200, j))
-            ch = (j.get("choices") or [{}])[0]
-            d = (ch.get("delta") or {}).get("content", "")
-            if ch.get("finish_reason"):
-                finish = ch["finish_reason"]
-            if d:
-                full += d
-                emit(d)
+        try:
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                s = line.strip()
+                if not s.startswith("data:"):
+                    continue
+                data = s[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    j = json.loads(data)
+                except Exception:
+                    continue
+                if not isinstance(j, dict):
+                    continue
+                if j.get("error"):
+                    raise RuntimeError(format_api_error(self.provider_key, 200, j))
+                ch = (j.get("choices") or [{}])[0]
+                d = (ch.get("delta") or {}).get("content", "")
+                if ch.get("finish_reason"):
+                    finish = ch["finish_reason"]
+                if d:
+                    full += d
+                    emit(d)
+        except Exception as e:
+            # สตรีมขาดกลางระหว่างอ่าน: คืนคำตอบบางส่วนดีกว่าล้างทิ้ง/โยน exc ดิบ
+            # (error ของผู้ให้บริการ = RuntimeError จากข้างบน → ส่งต่อตามเดิม)
+            if full and not isinstance(e, RuntimeError) and _is_timeout_error(e):
+                console.print("[dim](สตรีมขาดกลางระหว่างทาง — คืนคำตอบบางส่วนที่ได้มา)[/dim]")
+                return full, finish
+            raise
         return full, finish
 
     def should_continue(self, finish, round_i):
@@ -5138,7 +5729,8 @@ class _AnthropicChatDriver(_ChatDriver):
         return self.url, self.headers, body
 
     def send(self, url, headers, payload):
-        r = _post_chat(url, headers=headers, payload=payload, timeout=180,
+        r = _post_chat(url, headers=headers, payload=payload,
+                       timeout=_chat_timeout(False),
                        stream=False, tag=self.tag)
         if r.status_code == 400 and "thinking" in payload and "think" in _resp_body(r, 600).lower():
             # โมเดลนี้ไม่รองรับ thinking — ต้องสร้าง body ใหม่ที่ปิด thinking จริง ๆ
@@ -5149,7 +5741,8 @@ class _AnthropicChatDriver(_ChatDriver):
             except Exception:
                 pass
             url, headers, payload = self.spec()
-            r = _post_chat(url, headers=headers, payload=payload, timeout=180,
+            r = _post_chat(url, headers=headers, payload=payload,
+                           timeout=_chat_timeout(False),
                            stream=False, tag=self.tag)
         return r
 
@@ -5189,6 +5782,8 @@ def send_messages(provider, model, messages, temperature, stream=True, on_chunk=
     - เพดาน output สูง + ต่อคำตอบเองเมื่อโดนตัด (length) สูงสุด 2 ทบ
     - effort = low/medium/high เปิด reasoning (เฉพาะค่ายที่รองรับ)
     - max_tokens = ครอบเพดาน output (เช่น boost ใช้ค่าน้อยเพื่อจบไว)"""
+    # guardrail: system ของแชทต้องมี CLARIFY_RULES ก่อนเข้า driver (ซ่อมเฉพาะ payload นี้)
+    ensure_clarify_rules(messages)
     driver = _make_chat_driver(provider, model, messages, temperature, stream,
                                _chat_effort(provider, effort), max_tokens, _depth)
 
@@ -5255,9 +5850,41 @@ def send_messages(provider, model, messages, temperature, stream=True, on_chunk=
             if not driver.emit_per_round:
                 emit(full)
             return fix_mojibake(full)
-        except Exception:
+        except Exception as e:
             if not (swallow_round and driver.swallows_continuation_errors):
-                raise
+                if not _is_timeout_error(e):
+                    raise
+                # timeout/conn ไม่มี status code → เดิมไม่เคยเข้า failover เลย
+                # (ผู้ใช้เห็น string ดิบของ urllib3 ทุกค่าย) — จัดการเหมือน HTTP 504 ชั่วคราว
+                body = _friendly_timeout(e)
+                _health_note_slow(driver.provider_key)
+                newm = ""
+                try:
+                    newm = _failover_free(driver.provider_key, driver.model, 504,
+                                          body, switches)
+                except Exception:
+                    newm = ""
+                if newm:
+                    driver.set_model(newm)
+                    switches += 1
+                    console.print(f"[dim](ตอบช้าเกินเวลา — สลับเป็นโมเดล {newm} แล้วลองใหม่)[/dim]")
+                    continue
+                np = nm = ""
+                nd = None
+                if driver.supports_switch:
+                    try:
+                        np, nm = _failover_provider(driver.provider_key, driver.model,
+                                                    ttl=1800)
+                        if np:
+                            nd = _chat_switch_driver(driver, np, nm, messages, temperature,
+                                                     stream, effort, max_tokens, _depth)
+                    except Exception:
+                        nd = None
+                if np and nd:
+                    driver = nd
+                    _apply_provider_switch(np, nm, "อ่านคำตอบเกินเวลา — ลองค่ายอื่น")
+                    continue
+                raise NetTimeoutError(body) from None
             break  # ขอต่อไม่สำเร็จ = ใช้คำตอบเท่าที่มี (พฤติกรรมเดิม)
     if not driver.emit_per_round:
         emit(full)
@@ -5301,6 +5928,9 @@ def format_api_error(provider, status, body_text):
         return f"key ใช้ไม่ได้ (HTTP {status}): {msg or 'ตรวจสอบ key อีกครั้ง'}"
     if status == 404 or "not found" in msg.lower():
         return f"ไม่พบโมเดล/endpoint (HTTP {status}): {msg}"
+    if _is_model_not_found(status, body_text):
+        return (f"โมเดลไม่ถูกต้องหรือหายไปจาก OpenRouter (HTTP {status}): "
+                f"{msg or 'ลองใช้โมเดลอื่น (soonai models ดูรายชื่อ)'}")
     if status == 429 or "quota" in msg.lower() or "limit" in msg.lower() or "rate" in msg.lower():
         return (f"โควต้าหมดหรือถูกจำกัด (HTTP {status}): {msg} "
                 f"(โมเดลฟรีจำกัดเรท — รอสักครู่แล้วลองใหม่ หรือสลับโมเดลอื่น)")
@@ -5363,6 +5993,60 @@ def maybe_migrate_model(provider, model, err_text, keys, cfg):
 LAST_SEND_ERROR = ""
 
 
+def run_with_spinner(label, fn, *args, **kwargs):
+    """รัน fn (blocking · เช่น AI call) พร้อมสปินเนอร์ + วินาทีนับสด
+
+    ปัญหาเดิม: ขั้นอย่าง boost/verify ค้างเงียบ ๆ ดูเหมือนแฮงค์
+    วิธีนี้โชว์ "กำลังทำ X… 3s" ให้เห็นว่ากำลังทำงานจริง
+    fn รันครั้งเดียวเสมอ — ถ้าเปิด Live ไม่ได้ก็รันตรง ๆ ไม่ให้งานล่ม"""
+    class _Elapsed:
+        def __init__(self):
+            self.t0 = time.time()
+
+        def __rich__(self):
+            el = time.time() - self.t0
+            timer = f" [dim]{el:.0f}s[/dim]" if el >= 1 else ""
+            return Spinner("dots", text=f"{label}{timer}")
+
+    live = None
+    try:
+        live = Live(_Elapsed(), console=console, refresh_per_second=8)
+        live.start()
+    except Exception:
+        live = None
+    try:
+        return fn(*args, **kwargs)
+    finally:
+        if live is not None:
+            try:
+                live.stop()
+            except Exception:
+                pass
+
+
+def refresh_session_title(sid, provider, model, messages,
+                          label="กำลังตั้งหัวข้อบทสนทนา…"):
+    """สร้างหัวข้อ session จาก AI ถ้ายังไม่มี/ยังมั่ว — เรียกหลัง save/resume
+
+    เช็กก่อนแบบ cheap แล้วค่อยเปิดสปินเนอร์ (กันกะพริบฟรีทุกเทิร์น)
+    ยังไม่ต้องสร้าง = คืนชื่อเดิมทันที ไม่มี AI call ไม่มีสปินเนอร์"""
+    try:
+        f = SESSIONS_DIR / f"{sid}.json"
+        d = json.loads(f.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not _title_needs_ai(d):
+        return str((d or {}).get("name", "") or "") if isinstance(d, dict) else ""
+    try:
+        return run_with_spinner(label, ensure_session_title,
+                                sid, provider, model, messages) or \
+            str(d.get("name", "") or "")
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:refresh_session_title",
+                           "ตั้งหัวข้อ session ไม่สำเร็จ — ใช้ชื่อเดิมต่อ")
+        return str(d.get("name", "") or "")
+
+
 def show_reply(provider, model, messages, temperature, effort=None):
     """สตรีมคำตอบแบบ markdown สด ๆ (โชว์สปินเนอร์ก่อนโทเคนแรก) คืนข้อความเต็ม"""
     global LAST_SEND_ERROR
@@ -5373,16 +6057,26 @@ def show_reply(provider, model, messages, temperature, effort=None):
     thinking_note = ""
     if provider in ("ollama", "lmstudio"):
         pname = PROVIDERS.get(provider, {}).get("name", provider).split(" ")[0]
-        thinking_note = f" (ครั้งแรกอาจช้าหน่อย {pname} กำลังโหลดโมเดลเข้าแรม)"
+        thinking_note = f" ({pname} กำลังโหลดโมเดลเข้าแรม — ครั้งแรกอาจช้าหน่อย)"
 
     class _Thinking:
+        """สปินเนอร์รอโทเคนแรก — โชว์วินาทีที่ผ่านไปให้เห็นว่ากำลังทำงานจริง (ไม่ค้าง)"""
+
         def __init__(self):
             self.text = ""
-            self.spin = Spinner("dots", text=f"กำลังคิด…{thinking_note}")
+            self.t0 = time.time()
+            self._spin = Spinner("dots", text=self._label())
+
+        def _label(self):
+            el = time.time() - self.t0
+            # โชว์เวลาเฉพาะเมื่อเกิน 1 วิ — กันข้อความกระตุกทุกเฟรม
+            timer = f" [dim]{el:.0f}s[/dim]" if el >= 1.0 else ""
+            return f"กำลังคิด…{timer}{thinking_note}"
 
         def __rich__(self):
             if not self.text:
-                return self.spin
+                self._spin = Spinner("dots", text=self._label())
+                return self._spin
             try:
                 return Markdown(self.text)
             except Exception:
@@ -5390,6 +6084,7 @@ def show_reply(provider, model, messages, temperature, effort=None):
 
     state = _Thinking()
     try:
+        # refresh 10fps = ตัวเลขวินาที/สปินเนอร์ขยับเห็นชัด ไม่ดูค้าง
         with Live(state, console=console, refresh_per_second=10) as live:
             def cb(ch):
                 nonlocal full
@@ -5467,6 +6162,15 @@ def auto_compact_history(provider, model, history, keep_last=COMPACT_KEEP):
     return new_hist
 
 
+# คำสั้น ๆ ที่ boost จะคืนคำเดิมอยู่แล้ว (ตาม BOOST_SYSTEM) → ข้าม AI call เปล่า ๆ
+_BOOST_SKIP = frozenset({
+    "hi", "hello", "hey", "thanks", "thank you", "thx", "ok", "okay", "bye",
+    "good morning", "good night", "yes", "no", "y", "n",
+    "สวัสดี", "สวัสดีครับ", "สวัสดีค่ะ", "ดีครับ", "ดีค่ะ", "หวัดดี",
+    "ขอบคุณ", "ขอบคุณครับ", "ขอบคุณค่ะ", "โอเค", "ได้", "ใช่", "ไม่",
+    "ครับ", "ค่ะ", "จ้า", "ฮัลโหล",
+})
+
 BOOST_SYSTEM = ("Rewrite the user's rough chat prompt into a clear, precise, effective prompt. "
                 "Keep the same language (Thai stays Thai). Preserve intent exactly, add no new requirements. "
                 "If the message is just a short greeting or small talk (hi, hello, thanks, etc.), "
@@ -5509,9 +6213,18 @@ class TurnCancelled(Exception):
 
 
 def boost_worth_it(raw, mode):
-    """เช็กว่าคุ้มยิง boost ไหม (ข้ามเมื่อรู้ว่าโมเดลคืนคำเดิม ประหยัด 1 round-trip)"""
-    t = str(raw or "")
-    if not t.strip():
+    """เช็กว่าคุ้มยิง boost ไหม (ข้ามเมื่อรู้ว่าโมเดลคืนคำเดิม ประหยัด 1 round-trip)
+
+    boost = AI call แยกต่างหากก่อนคำถามจริง → ข้อความสั้น/ทักทายไม่คุ้ม
+    (โมเดลจะคืนคำเดิมอยู่แล้วตาม BOOST_SYSTEM — เสีย latency เปล่า ๆ)"""
+    t = str(raw or "").strip()
+    if not t:
+        return False
+    # สั้นเกินไป = ไม่มีอะไรให้เกลา แต่กิน 1 round-trip เต็ม ๆ → ข้าม
+    if len(t) < 20:
+        return False
+    # ทักทาย/ขอบคุณ/คำสั้น ๆ ที่ BOOST_System คืนคำเดิมอยู่แล้ว → ข้าม
+    if t.lower().rstrip("!?.") in _BOOST_SKIP:
         return False
     if t.isascii() and str(mode or "th").strip().lower() == "en":
         return False  # โหมดแปลอังกฤษเจออังกฤษอยู่แล้ว = คืนคำเดิมชัวร์
@@ -5792,6 +6505,10 @@ def cmd_providers(args, keys, cfg):
         name = ("[bold]* [/bold]" if pid == cfg.get("provider") else "") + p["name"]
         table.add_row(pid, name, has, free)
     console.print(table)
+    tool_only = [pid for pid, p in PROVIDERS.items() if p.get("tool_only")]
+    if tool_only:
+        console.print(f"[dim]{', '.join(tool_only)} = web tools ของ agent (web_search/web_fetch "
+                      "หรือ soonai mcp install tinyfish) — ไม่ใช่ค่ายแชท เลือกเป็นค่ายหลักไม่ได้[/dim]")
     console.print("[dim]* = ค่าเริ่มต้นปัจจุบัน (เปลี่ยนด้วย soonai use PROVIDER MODEL)[/dim]")
 
 
@@ -5799,6 +6516,10 @@ def cmd_models(args, keys, cfg):
     provider = args.provider or cfg.get("provider", "ollama")
     if provider not in PROVIDERS:
         console.print(f"[red]ไม่รู้จัก provider: {provider}[/red]")
+        return 1
+    if PROVIDERS[provider].get("tool_only"):
+        console.print(f"[yellow]{PROVIDERS[provider]['name']} ไม่ใช่ค่ายแชท (ไม่มี endpoint "
+                      "คุยโมเดล) — เป็น web tools ของ agent แทน (web_search/web_fetch)[/yellow]")
         return 1
     err = require_usable(provider, keys)
     if err:
@@ -5875,9 +6596,92 @@ def cmd_key(args, keys, cfg):
     return 0
 
 
+def cmd_provider(args, keys, cfg):
+    """จัดการ provider แบบ OpenAI-compatible ที่ผู้ใช้เพิ่มเอง"""
+    action = args.action
+    if action in ("list", "ls"):
+        custom = [pid for pid, spec in PROVIDERS.items() if spec.get("custom")]
+        if not custom:
+            console.print("[dim]ยังไม่มี custom provider — เพิ่มด้วย: "
+                          "soonai provider add NAME URL MODEL[/dim]")
+            return 0
+        for pid in custom:
+            spec = PROVIDERS[pid]
+            console.print(f"[cyan]{pid}[/cyan] — {spec['name']} · {spec['base']} · "
+                          f"{', '.join(spec.get('fallback_models', [])) or '(ไม่ระบุโมเดล)'}")
+        return 0
+    if action == "rm":
+        pid = str(args.name or "").strip().lower()
+        custom = cfg.get("custom_providers", {})
+        if not isinstance(custom, dict) or pid not in custom:
+            console.print(f"[red]ไม่พบ custom provider: {pid}[/red]")
+            return 1
+        custom.pop(pid, None)
+        if cfg.get("provider") == pid:
+            cfg["provider"], cfg["model"] = "ollama", ""
+        keys.pop(pid, None)
+        save_keys(keys)
+        save_json(CONFIG_FILE, cfg)
+        apply_custom_providers(cfg)
+        console.print(f"[green]ลบ custom provider '{pid}' แล้ว[/green]")
+        return 0
+    pid = str(args.name or "").strip().lower()
+    base = str(args.url or "").strip().rstrip("/")
+    model = str(args.model or "").strip()
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", pid):
+        console.print("[red]ชื่อใช้ a-z, 0-9, _ หรือ - และต้องขึ้นต้นด้วยตัวอักษร[/red]")
+        return 1
+    if pid in PROVIDERS and not PROVIDERS[pid].get("custom"):
+        console.print(f"[red]ชื่อ '{pid}' ชนกับ provider ในระบบ[/red]")
+        return 1
+    parsed = urllib.parse.urlparse(base)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        console.print("[red]URL ต้องเป็น http(s) URL ที่ถูกต้อง[/red]")
+        return 1
+    if base.endswith("/chat/completions"):
+        base = base[:-len("/chat/completions")].rstrip("/")
+    if not model:
+        console.print("[red]ต้องระบุ model เริ่มต้น[/red]")
+        return 1
+    custom = cfg.setdefault("custom_providers", {})
+    if not isinstance(custom, dict):
+        custom = cfg["custom_providers"] = {}
+    headers = {}
+    for item in args.header or []:
+        if "=" not in item:
+            console.print(f"[red]header ต้องเป็น NAME=VALUE: {item}[/red]")
+            return 1
+        key, value = item.split("=", 1)
+        if key.strip().lower() in {"authorization", "x-api-key", "api-key"}:
+            console.print("[red]ห้ามเก็บ auth header ใน config ใช้ API key/env แทน[/red]")
+            return 1
+        headers[key.strip()] = value.strip()
+    custom[pid] = {"name": args.display_name or pid, "base": base, "model": model,
+                   "models": [model], "models_url": args.models_url or (base + "/models"),
+                   "extra_headers": headers, "key_env": args.key_env or ""}
+    save_json(CONFIG_FILE, cfg)
+    apply_custom_providers(cfg)
+    if args.api_key:
+        keys[pid] = args.api_key.strip()
+        save_keys(keys)
+    elif not get_key(pid, keys) and sys.stdin.isatty():
+        key = _ask_secret(f"API key ของ {pid} (Enter = ใช้ env/ข้าม)").strip()
+        if key:
+            keys[pid] = key
+            save_keys(keys)
+    console.print(f"[green]เพิ่ม provider '{pid}' แล้ว[/green] — ใช้: "
+                  f"soonai use {pid} {model}")
+    return 0
+
+
 def cmd_use(args, keys, cfg):
     if args.provider not in PROVIDERS:
         console.print(f"[red]ไม่รู้จัก provider: {args.provider}[/red]")
+        return 1
+    if PROVIDERS[args.provider].get("tool_only"):
+        console.print(f"[red]{PROVIDERS[args.provider]['name']} ไม่ใช่ค่ายแชท — เลือกเป็น "
+                      "provider หลักไม่ได้ (ใช้เป็นเครื่องมือ web: web_search/web_fetch หรือ "
+                      "soonai mcp install tinyfish)[/red]")
         return 1
     cfg["provider"] = args.provider
     if args.model:
@@ -6000,6 +6804,67 @@ def cmd_status(args, keys, cfg):
         console.print(f"local {name}: {'[green]ONLINE[/green]' if ok else '[red]offline[/red]'}")
 
 
+def _ask_seconds(label, default, lo, hi):
+    """ถามค่าวินาทีใน setup: Enter/ค่าเดิม = คงไว้ · ผิดรูป/นอกช่วง = ไม่แก้ (คืน None)"""
+    try:
+        raw = Prompt.ask(f"{label} (วินาที, Enter = คง {default})",
+                         default=str(default)).strip()
+    except (EOFError, KeyboardInterrupt):
+        console.print()
+        return None
+    if not raw or raw == str(default):
+        return None
+    try:
+        v = int(float(raw))
+    except ValueError:
+        console.print(f"[yellow]'{raw}' ไม่ใช่ตัวเลข — คงค่าเดิม {default}[/yellow]")
+        return None
+    if v < lo or v > hi:
+        console.print(f"[yellow]ต้องอยู่ระหว่าง {lo}–{hi} วินาที — คงค่าเดิม {default}[/yellow]")
+        return None
+    return v
+
+
+def setup_timeouts(cfg):
+    """หน้าตั้งค่า timeout ใน `soonai setup` — ปรับได้เองไม่ต้องแก้ config.json
+    บันทึกลง config แล้ว (มีผลทุกค่าย/ทุกโมเดล) · คืน True ถ้ามีการเปลี่ยนค่า"""
+    conn, ns = _chat_timeout(False)          # ค่าที่ใช้อยู่ตอนนี้
+    st = _chat_timeout(True)[1]
+    console.print(Panel(
+        "นานเกินไป = คำตอบยาว/โมเดล thinking โดนตัดกลางทาง · "
+        "สั้นเกินไป = ค่ายตอบช้าหน่อยระบบสลับทิ้ง\n"
+        f"ตอนนี้: เชื่อมต่อ {conn}s · สตรีม {st}s (เว้นช่วงระหว่าง chunk) · "
+        f"ไม่สตรีม {ns}s (รอทั้งคำตอบ)",
+        title="Timeout", border_style="cyan"))
+    try:
+        want = Prompt.ask("ปรับ timeout ไหม?", choices=["y", "n"], default="n")
+    except (EOFError, KeyboardInterrupt):
+        console.print()
+        return False
+    if want != "y":
+        return False
+    changed = {}
+    v = _ask_seconds("เชื่อมต่อ (connect)", conn, 5, 120)
+    if v is not None:
+        changed["connect_timeout"] = v
+    v = _ask_seconds("สตรีม — เว้นช่วงนานสุดระหว่าง chunk", st, 30, 600)
+    if v is not None:
+        changed["chat_timeout_stream"] = v
+    v = _ask_seconds("ไม่สตรีม — รอทั้งคำตอบนานสุด", ns, 30, 900)
+    if v is not None:
+        changed["chat_timeout"] = v
+    if not changed:
+        console.print("[dim]คงค่า timeout เดิมไว้[/dim]")
+        return False
+    cfg.update(changed)
+    save_json(CONFIG_FILE, cfg)
+    for k in ("connect_timeout", "chat_timeout_stream", "chat_timeout"):
+        if k in changed:
+            console.print(f"  · {k} = {changed[k]}s")
+    console.print("[dim]มีผลกับทุกค่าย/ทุกโมเดลทันทีที่ส่งคำขอครั้งถัดไป[/dim]")
+    return True
+
+
 def cmd_setup(args, keys, cfg):
     console.print(Panel("ตั้งค่า SoonAI ครั้งแรก — เลือกค่าย ใส่ key เลือกโมเดล เสร็จแล้วแชทได้เลย",
                         title="Setup"))
@@ -6017,6 +6882,12 @@ def cmd_setup(args, keys, cfg):
     cfg["provider"] = provider
     cfg["model"] = model
     save_json(CONFIG_FILE, cfg)
+    try:
+        setup_timeouts(cfg)
+    except (EOFError, KeyboardInterrupt):
+        console.print()
+    except Exception:
+        pass
     # ติดตั้ง skill ชุดแนะนําให้เลย (ไม่ต้องไปหาที่โหลดเอง)
     try:
         if not scan_skills():
@@ -6084,7 +6955,7 @@ def nothing_done_reason(msgs=None):
         return (f"[yellow](คุณปฏิเสธคำสั่งทั้งหมด {denies} ครั้ง AI เลยไม่ได้ทำอะไร — "
                 f"กด `a` เพื่ออนุญาตรวดเดียว หรือสั่งใหม่)[/yellow]")
     return ("[yellow](โมเดลตอบว่าง — ลองสั่งใหม่อีกครั้ง/เปลี่ยนโมเดล "
-            "ถ้าเป็นบ่อยตั้ง SOONAI_DEBUG=1 แล้วลองใหม่เพื่อเก็บ log)[/yellow]")
+            f"ถ้าเป็นบ่อยตั้ง SOONAI_DEBUG=1 แล้วลองใหม่ — log อยู่ที่ {_DBG.log_path()})[/yellow]")
 
 
 class _StdoutToStderr:
@@ -6231,7 +7102,7 @@ def cmd_ask(args, keys, cfg):
     if getattr(args, "boost", False):
         bq = boost_prompt(provider, model, args.question)
         if bq and bq != args.question:
-            if sys.stdin.isatty() and os.environ.get("SOONAI_DEBUG"):
+            if sys.stdin.isatty() and _DBG.enabled():
                 console.print(f"[dim]พร้อมที่ปรับแล้ว: {bq}[/dim]")
             messages[-1] = {"role": "user", "content": bq}
     if getattr(args, "agent", False):
@@ -6328,9 +7199,20 @@ def ensure_local_server(provider):
         try:
             if Prompt.ask("Ollama ยังไม่รัน เปิดให้เลยไหม?",
                           choices=["y", "n"], default="y") == "y":
+                import shutil as _shutil
+                if not _shutil.which("ollama"):
+                    console.print("[red]ไม่พบคำสั่ง ollama — ติดตั้ง Ollama ก่อน: "
+                                  "https://ollama.com/download[/red]")
+                    console.print("[dim]หรือรัน `ollama serve` ด้วยตัวเอง[/dim]")
+                    return False
                 import subprocess
-                subprocess.Popen(["ollama", "serve"],
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                try:
+                    subprocess.Popen(["ollama", "serve"],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except (FileNotFoundError, OSError):
+                    console.print("[red]เปิด Ollama ไม่ได้ — ติดตั้งหรือเพิ่ม ollama ลง PATH ก่อน[/red]")
+                    console.print("[dim]https://ollama.com/download[/dim]")
+                    return False
                 for _ in range(15):
                     _t.sleep(1)
                     try:
@@ -6433,6 +7315,11 @@ def _ask_secret(prompt_text):
 def ensure_key(provider, keys):
     """ถ้าค่ายนี้ยังไม่มี key: เสนอเปิดหน้าขอ key ในเบราว์เซอร์ + ให้วาง key ตรงนี้เลย
     คืน True ถ้าพร้อมใช้ (มี key อยู่แล้ว / ไม่ต้องใช้ key / เพิ่งวางให้)"""
+    if PROVIDERS[provider].get("tool_only"):
+        console.print(f"[yellow]{PROVIDERS[provider]['name']} ไม่ใช่ค่ายแชท (ไม่มี endpoint "
+                      "คุยโมเดล) — เป็น web tools ของ agent (web_search/web_fetch · "
+                      "soonai mcp install tinyfish)[/yellow]")
+        return False
     if PROVIDERS[provider].get("no_key") or get_key(provider, keys):
         return True
     cfg = PROVIDERS[provider]
@@ -6469,7 +7356,8 @@ def switch_provider(keys, cfg):
     """ให้ผู้ใช้เลือกค่ายใหม่ + โมเดล (เหมือน dropdown บนเว็บ) คืน (provider, model) หรือ None"""
     cmd_providers(argparse.Namespace(), keys, cfg)
     fp = fuzzy_pick("Select provider:",
-                    [(pid, f"{pid} — {p['name']}") for pid, p in PROVIDERS.items()])
+                    [(pid, f"{pid} — {p['name']}") for pid, p in PROVIDERS.items()
+                     if not p.get("tool_only")])
     if fp:
         pid = fp
     elif fp == "":
@@ -6550,8 +7438,9 @@ def check_update(cfg, force=False):
     cfg["last_update_check"] = now
     try:
         save_json(CONFIG_FILE, cfg)
-    except Exception:
-        pass
+    except Exception as e:
+        _DBG.log_swallowed(e, "soonai.py:check_update",
+                           "จำเวลาเช็คอัปเดตล่าสุดไม่ได้ — จะยิงเช็คซ้ำทุกครั้งที่เปิดโปรแกรม")
     meta = fetch_latest_meta(url)
     if not meta:
         return None
@@ -6590,8 +7479,10 @@ def do_update(cfg, meta):
             console.print("[yellow]มีไฟล์ที่แก้/ยังไม่ commit — ยกเลิกอัปเดตอัตโนมัติ "
                           "(commit หรือ stash ก่อน แล้วรัน soonai update ใหม่)[/yellow]")
             return False
-    except Exception:
-        pass
+    except Exception as e:
+        # ตรวจ working tree ไม่ได้ = ไปต่อ (พฤติกรรมเดิม) แต่ต้องมีร่องรอยว่าทำไม
+        _DBG.log_swallowed(e, "soonai.py:do_update",
+                           "ตรวจ working tree ก่อน pull ไม่ได้ — ไปต่อ (งานที่ยังไม่ commit อาจถูกทับ)")
     try:
         r = subprocess.run(["git", "-C", str(BASE_DIR), "pull", "--ff-only"],
                            capture_output=True, text=True, timeout=120)
@@ -6874,6 +7765,109 @@ def cmd_demo(args):
     return 0
 
 
+def cmd_git(args, keys, cfg):
+    """แสดงสถานะ git (status/diff/branch/log)"""
+    if not git_in_repo():
+        console.print("[yellow]โฟลเดอร์นี้ไม่ใช่ git repo[/yellow]")
+        return 1
+    action = getattr(args, "git_action", "status")
+    if action == "status" or action is None:
+        code, out = _git_run(["status", "--short"])
+        changes = git_changes()
+        if changes:
+            table = neo_table(title=f"Git status — สาขา {git_branch() or '?'}",
+                              show_lines=False)
+            table.add_column("สถานะ", justify="center")
+            table.add_column("ไฟล์")
+            for st, p in changes[:50]:
+                table.add_row(st, p)
+            console.print(table)
+            console.print(f"[dim]{len(changes)} ไฟล์เปลี่ยน · [bold]{len(untracked := [p for s,p in changes if s=='??'])} untracked[/dim]")
+        else:
+            console.print("[green]Working tree สะอาด[/green]")
+        return 0
+    if action == "diff":
+        code, out = _git_run(["diff", "--stat"])
+        console.print(out or "(ไม่มี diff)")
+        return 0
+    if action == "log":
+        code, out = _git_run(["log", "--oneline", "-10"])
+        console.print(out or "(ไม่มี log)")
+        return 0
+    if action == "branch":
+        branches, _ = _git_run(["branch", "--list"])
+        cur = git_branch()
+        console.print(f"[bold]สาขาปัจจุบัน:[/bold] {cur}")
+        console.print("[dim]สาขาทั้งหมด:[/dim]")
+        for line in branches.splitlines():
+            marker = "[green]*[/]" if cur in line else " "
+            console.print(f"  {marker} {line.strip()}")
+        return 0
+    return 0
+
+
+def cmd_commit(args, keys, cfg):
+    """ร่างข้อความ commit จาก diff แล้ว commit (ไม่ push)"""
+    ok = git_commit_flow(
+        args.provider or cfg.get("provider", ""),
+        args.model or cfg.get("model", ""),
+        auto_yes=args.yes
+    )
+    return 0 if ok else 1
+
+
+def cmd_undo(args, keys, cfg):
+    """ย้อนกลับ commit ล่าสุด + คืนสถานะจาก checkpoint"""
+    if not git_in_repo():
+        console.print("[yellow]ไม่ใช่ git repo[/yellow]")
+        return 1
+    code, out = _git_run(["log", "--oneline", "-1"])
+    if code != 0:
+        console.print("[yellow]ไม่มี commit ให้ย้อนกลับ[/yellow]")
+        return 1
+    last_commit = out.splitlines()[0] if out else "unknown"
+    console.print(f"[yellow]ย้อนกลับ commit: {last_commit}[/yellow]")
+    code, out = _git_run(["reset", "--soft", "HEAD~1"])
+    if code != 0:
+        console.print(f"[red]ย้อนกลับไม่สำเร็จ: {out}[/red]")
+        return 1
+    # พยายามคืนจาก checkpoint ถ้ามี
+    try:
+        records = checkpoint_records()
+        if records:
+            latest = records[0]
+            console.print(f"[dim]พบ checkpoint ล่าสุด: {latest.get('timestamp', '?')}[/dim]")
+            console.print("[dim]ใช้ soonai checkpoint restore เพื่อคืนไฟล์[/dim]")
+    except Exception:
+        pass
+    console.print("[green]ย้อนกลับสำเร็จ — ไฟล์กลับไปอยู่ก่อน commit[/green]")
+    return 0
+
+
+def cmd_test(args, keys, cfg):
+    """รันเทสต์อัตโนมัติ (pytest) แสดงผลลัพธ์"""
+    import subprocess, time
+    test_dir = args.path or "."
+    console.print(f"[cyan]กำลังรันเทสต์ใน {test_dir}…[/cyan]")
+    t0 = time.time()
+    try:
+        result = subprocess.run(
+            ["python", "-m", "pytest", test_dir, "-q", "--tb=short"],
+            capture_output=False, timeout=300, encoding="utf-8"
+        )
+    except subprocess.TimeoutExpired:
+        console.print("[red]เทสต์ใช้เวลาเกิน 5 นาที[/red]")
+        return 1
+    except FileNotFoundError:
+        console.print("[yellow]ไม่พบ pytest — ติดตั้ง: pip install -r requirements-dev.txt[/yellow]")
+        return 1
+    elapsed = time.time() - t0
+    passed = result.returncode == 0
+    status = "[green]✅ ผ่าน[/green]" if passed else "[red]❌ ล้มเหลว[/red]"
+    console.print(f"[dim]เสร็จใน {elapsed:.1f}s {status}[/dim]")
+    return 0 if passed else 1
+
+
 def build_parser():
     ap = argparse.ArgumentParser(prog="soonai", description="SoonAI CLI — แชทบอททุกค่ายจาก cmd/PowerShell")
     ap.add_argument("--version", action="version", version=f"soonai {VERSION}")
@@ -6928,6 +7922,17 @@ def build_parser():
 
     sub.add_parser("providers", help="ดูรายชื่อผู้ให้บริการ")
 
+    p = sub.add_parser("provider", help="เพิ่ม/ลบ provider แบบ OpenAI-compatible ด้วย URL + API key")
+    p.add_argument("action", choices=["add", "rm", "list", "ls"])
+    p.add_argument("name", nargs="?", default="")
+    p.add_argument("url", nargs="?", default="")
+    p.add_argument("model", nargs="?", default="")
+    p.add_argument("--display-name", default="")
+    p.add_argument("--models-url", default="")
+    p.add_argument("--api-key", default="")
+    p.add_argument("--key-env", default="", help="ชื่อ environment variable ที่เก็บ API key")
+    p.add_argument("--header", action="append", default=[], help="header ที่ไม่ใช่ secret: NAME=VALUE")
+
     p = sub.add_parser("models", help="ดูโมเดลล่าสุดของค่ายนั้น")
     p.add_argument("--provider")
     p.add_argument("--free-only", action="store_true")
@@ -6955,7 +7960,8 @@ def build_parser():
 
     p = sub.add_parser("mcp", help="ต่อ MCP servers (tools เสริมให้ agent)")
     p.add_argument("action", nargs="?", default="list",
-                   choices=["list", "tools", "test", "add", "rm", "on", "off", "refresh"])
+                   choices=["list", "catalog", "install", "tools", "test", "add", "rm",
+                            "on", "off", "refresh"])
     p.add_argument("target", nargs="?", default="")
     p.add_argument("rest", nargs="*", default=[])
     p.add_argument("--env", action="append", default=[],
@@ -6981,14 +7987,36 @@ def build_parser():
     sub.add_parser("demo", help="โชว์กรอบจักรวาลอนิเมชัน (ไม่ใช้เน็ต)")
 
     sub.add_parser("update", help="เช็ค + อัปเดตเป็นเวอร์ชันล่าสุด")
+
+    # ── Git commands ──
+    p = sub.add_parser("git", help="สถานะ/ประวัติ git")
+    p.add_argument("git_action", nargs="?", default="status",
+                   choices=["status", "diff", "log", "branch"])
+    p.add_argument("--provider", help="ค่าย AI สำหรับร่าง commit")
+    p.add_argument("--model", help="โมเดลสำหรับร่าง commit")
+
+    p = sub.add_parser("commit", help="ร่างข้อความ + commit (ไม่ push)")
+    p.add_argument("--provider", help="ค่าย AI สำหรับร่าง commit")
+    p.add_argument("--model", help="โมเดลสำหรับร่าง commit")
+    p.add_argument("--yes", action="store_true", help="commit โดยไม่ถาม")
+
+    p = sub.add_parser("undo", help="ย้อนกลับ commit ล่าสุด + คืน checkpoint")
+
+    p = sub.add_parser("test", help="รันเทสต์อัตโนมัติ")
+    p.add_argument("path", nargs="?", default=".", help="โฟลเดอร์เทสต์")
+
     return ap
 
 
 def main(argv=None):
     global AGENT_MAX_STEPS
     _tolerant_stdio()
+    # เปิดโหมด debug = ติดตั้งตาข่ายจับ exception ที่ปกติหายเงียบ (thread/finalizer)
+    # ไม่ log argv เพราะอาจมี key อยู่ในบรรทัดคำสั่ง (เช่น `soonai key set openai sk-...`)
+    _DBG.install_hooks()
     keys = load_keys()
     cfg = load_config()
+    apply_custom_providers(cfg)
     ap = build_parser()
     args = ap.parse_args(argv)
     AGENT_MAX_STEPS = getattr(args, "max_steps", None)
@@ -7010,6 +8038,8 @@ def main(argv=None):
         return cmd_exec(args, keys, cfg)
     if args.cmd == "providers":
         return cmd_providers(args, keys, cfg)
+    if args.cmd == "provider":
+        return cmd_provider(args, keys, cfg)
     if args.cmd == "models":
         return cmd_models(args, keys, cfg)
     if args.cmd == "key":
@@ -7039,6 +8069,14 @@ def main(argv=None):
         return cmd_mcp(args, keys, cfg)
     if args.cmd == "skills":
         return cmd_skills(args, keys, cfg)
+    if args.cmd == "git":
+        return cmd_git(args, keys, cfg)
+    if args.cmd == "commit":
+        return cmd_commit(args, keys, cfg)
+    if args.cmd == "undo":
+        return cmd_undo(args, keys, cfg)
+    if args.cmd == "test":
+        return cmd_test(args, keys, cfg)
     ap.print_help()
     return 0
 
@@ -7108,7 +8146,9 @@ if __name__ == "__main__":
     except BaseException:
         import traceback
         try:
-            (BASE_DIR / "crash.log").write_text(traceback.format_exc(), encoding="utf-8")
+            # crash.log ต่อท้ายแล้วหมุนไฟล์เอง (เดิมเขียนทับ = ร่องรอยเก่าหายหมด)
+            # พร้อมสำเนาลง debug log ถ้าเปิดโหมดอยู่
+            _DBG.log_crash(traceback.format_exc())
         except Exception:
             pass
         traceback.print_exc()

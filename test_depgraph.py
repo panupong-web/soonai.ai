@@ -68,9 +68,21 @@ check("runtime เป็นรากของกราฟ (import/bind ว่า
 check("symbols import โมดูลพี่น้อง + runtime ตรง ๆ (project, runtime)",
       set(_t("symbols.py").get("imports", [])) == {"project.py", "runtime.py"},
       _t("symbols.py").get("imports"))
-check("shell/usage อ่าน seam ผ่าน runtime (import runtime)",
-      all(_t(n).get("imports") == ["runtime.py"] for n in ("shell.py", "usage.py")),
+check("shell/usage อ่าน seam ผ่าน runtime (import runtime + debug ตรง ๆ ไม่ bind)",
+      _t("usage.py").get("imports") == ["runtime.py"]
+      and set(_t("shell.py").get("imports", [])) == {"debug.py", "runtime.py"},
       {n: _t(n).get("imports") for n in ("shell.py", "usage.py")})
+
+# debug (Step 6): "โมดูลฐาน" ตัวใหม่ — พึ่ง runtime ทางเดียว (ตอนเรียกใช้ ไม่ใช่ตอน import)
+check("debug.py เป็นโมดูลฐาน (import เฉพาะ runtime · ไม่ bind)",
+      set(_t("debug.py").get("imports", [])) <= {"runtime.py"}
+      and _t("debug.py").get("bind_deps") == [],
+      [_t("debug.py").get("imports"), _t("debug.py").get("bind_deps")])
+check("soonai/chat/permissions import debug (จุดที่กลืน exception สำคัญ)",
+      {"debug.py"} <= set(_t("soonai.py").get("imports", []))
+      and "debug.py" in _t("chat.py").get("imports", [])
+      and "debug.py" in _t("permissions.py").get("imports", []),
+      {n: _t(n).get("imports") for n in ("soonai.py", "chat.py", "permissions.py")})
 check("project ไม่พึ่ง symbols/shell/usage",
       not ({"symbols.py", "shell.py", "usage.py"} & set(_t("project.py").get("imports", []))),
       _t("project.py").get("imports"))
@@ -85,9 +97,9 @@ check("bind budget: ขอบ bind ทั้งโปรเจกต์เหล
 # skills (Step 2): ต้องเป็น DAG · พึ่งโมดูลที่แยกแล้วเท่านัด (ไม่ bind, ไม่พึ่ง soonai)
 _skills_deps = set(_t("skills.py").get("bind_deps", []))
 _skills_imports = set(_t("skills.py").get("imports", []))
-check("skills ไม่ bind และ import เฉพาะโมดูลที่แยกแล้ว (project/runtime/shell/symbols)",
+check("skills ไม่ bind และ import เฉพาะโมดูลที่แยกแล้ว (debug/project/runtime/shell/symbols)",
       _skills_deps == set()
-      and _skills_imports <= {"project.py", "runtime.py", "shell.py", "symbols.py"},
+      and _skills_imports <= {"debug.py", "project.py", "runtime.py", "shell.py", "symbols.py"},
       [sorted(_skills_deps), sorted(_skills_imports)])
 check("skills import เข้า soonai จริง",
       "skills.py" in mods.get("soonai.py", {}).get("imports", []),

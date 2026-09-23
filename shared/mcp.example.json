@@ -9,6 +9,11 @@
       ],
       "env": {},
       "enabled": true
+    },
+    "my-remote": {
+      "url": "https://example.com/mcp",
+      "headers": {"Authorization": "Bearer ใส่-token-ที่นี่"},
+      "enabled": false
     }
   }
 }

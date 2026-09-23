@@ -21,6 +21,11 @@ debug_last.json
 crash.log
 .env
 
+# log ของโหมด debug (ปกติอยู่ที่ <DATA_DIR>/logs/ · เผื่อกรณี fallback มาโฟลเดอร์โปรเจค)
+logs/
+debug.log
+debug.log.[0-9]*
+
 # mcp.json = ค่าตั้งเฉพาะเครื่อง (พาธ node_modules ของผู้ใช้ + โฟลเดอร์ที่อนุญาต)
 # ตัวโปรแกรมรันได้ปกติเมื่อไม่มีไฟล์นี้ (MCPHub อ่านไม่เจอ = ไม่มี server → _servers_from_file คืน {})
 # เก็บ "ตัวอย่าง" ที่ไม่มีพาธส่วนตัวไว้ที่ shared/mcp.example.json แทน

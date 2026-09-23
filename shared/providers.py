@@ -6,6 +6,8 @@
 - Ollama / LM Studio = รันบนเครื่อง 100% ฟรี ไม่ต้องใช้ key
 """
 import os
+import re
+from urllib.parse import urlparse
 
 PROVIDERS = {
     "openai": {
@@ -99,6 +101,20 @@ PROVIDERS = {
             "meta/muse-spark-1.3-contributor", "meta/muse-spark-1.2-contributor",
         ],
     },
+    "bazaarlink": {
+        "name": "BazaarLink (ไต้หวัน · รวมโมเดลทุกค่าย, มีตัวฟรี)",
+        "base": "https://api.bazaarlink.ai/v1",
+        "key_env": "BAZAARLINK_API_KEY",
+        "key_url": "https://bazaarlink.ai/keys",
+        "models_url": "https://api.bazaarlink.ai/v1/models",
+        "type": "openai",
+        # auto:free + โมเดล free-quota (ใช้ฟรีในโควต้า 10/นาที 50/วัน · เกิน = คิดเงินต่อ)
+        "tier_models": [":free", "0731free"],
+        "extra_headers": {"HTTP-Referer": "http://localhost:5000", "X-Title": "SoonAI-Universal-Chatbot"},
+        "fallback_models": ["auto:free", "qwen/qwen3.7-flash:free",
+                            "deepseek/deepseek-v4-flash-0731free:free", "deepseek-v4.1-flash",
+                            "gpt-5.5", "claude-sonnet-4.6", "grok-4.7"],
+    },
     "cohere": {
         "name": "Cohere (Command R)",
         "base": "https://api.cohere.com/compatibility/v1",
@@ -175,6 +191,23 @@ PROVIDERS = {
         "pricing": "tier",
         "fallback_models": ["gpt-5-nano", "gpt-6-astra", "gpt-5.4-nano", "gpt-4o-mini", "gpt-4.1-mini", "o4-mini", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-3.1-flash-lite", "claude-opus-5", "claude-sonnet-5", "claude-fable-5-1", "claude-fable-5", "claude-opus-4-8", "claude-haiku-4-5-20251001", "grok-4.6", "grok-4.5", "deepseek-v4-pro-0813", "deepseek-v4-flash-0731", "qwen3.8-27b", "qwen3.8-max", "qwen3-235b-a22b", "zai-glm-5-2", "kimi-k2.7-code", "mistral-medium-2604"],
     },
+    "tinyfish": {
+        "name": "TinyFish (Web Agent · Search/Fetch ฟรี)",
+        "base": "https://agent.tinyfish.ai",
+        "key_env": "TINYFISH_API_KEY",
+        "key_url": "https://agent.tinyfish.ai/api-keys",
+        "models_url": "native:tinyfish",
+        "type": "tinyfish",
+        # ไม่ใช่ค่ายแชท: ไม่มี endpoint คุยโมเดล — เป็น web infra สำหรับ agent
+        # (Search/Fetch ฟรี ~30 ครั้ง/นาที · Agent/Research/Browser ใช้เครดิต wallet)
+        # ใช้ผ่าน tools ของ agent (web_search/web_fetch) หรือ MCP (https://agent.tinyfish.ai/mcp)
+        "tool_only": True,
+        "is_free_tier": True,
+        "pricing": "tier",
+        "search_url": "https://api.search.tinyfish.ai",
+        "fetch_url": "https://api.fetch.tinyfish.ai",
+        "fallback_models": [],
+    },
     "ollama": {
         "name": "Ollama (รันบนเครื่อง 100% ฟรี)",
         "base": "http://localhost:11434/v1",
@@ -198,6 +231,57 @@ PROVIDERS = {
         "fallback_models": ["local-model"],
     },
 }
+
+_CUSTOM_PROVIDER_IDS = set()
+
+
+def apply_custom_providers(config):
+    """Load user-defined OpenAI-compatible providers from config safely."""
+    for provider_id in tuple(_CUSTOM_PROVIDER_IDS):
+        PROVIDERS.pop(provider_id, None)
+    _CUSTOM_PROVIDER_IDS.clear()
+    raw = (config or {}).get("custom_providers", {})
+    if not isinstance(raw, dict):
+        return []
+    added = []
+    for provider_id, spec in raw.items():
+        provider_id = str(provider_id or "").strip().lower()
+        if (not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", provider_id)
+                or provider_id in PROVIDERS or not isinstance(spec, dict)):
+            continue
+        base = str(spec.get("base") or "").strip().rstrip("/")
+        parsed = urlparse(base)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            continue
+        if base.endswith("/chat/completions"):
+            base = base[:-len("/chat/completions")].rstrip("/")
+        model = str(spec.get("model") or "").strip()
+        raw_models = spec.get("models", [])
+        if not isinstance(raw_models, list):
+            raw_models = []
+        models = [str(x).strip() for x in raw_models if str(x).strip()]
+        if model and model not in models:
+            models.insert(0, model)
+        models_url = str(spec.get("models_url") or (base + "/models")).strip()
+        headers = spec.get("extra_headers", {})
+        if not isinstance(headers, dict):
+            headers = {}
+        safe_headers = {str(k): str(v) for k, v in headers.items()
+                        if str(k).lower() not in {"authorization", "x-api-key", "api-key"}}
+        PROVIDERS[provider_id] = {
+            "name": str(spec.get("name") or provider_id),
+            "base": base,
+            "key_env": str(spec.get("key_env") or "") or None,
+            "key_url": str(spec.get("key_url") or ""),
+            "models_url": models_url,
+            "type": "openai",
+            "custom": True,
+            "fallback_models": models or ([model] if model else []),
+            "extra_headers": safe_headers,
+        }
+        _CUSTOM_PROVIDER_IDS.add(provider_id)
+        added.append(provider_id)
+    return added
 
 # ระดับราคา (ความจริง ไม่ใช่การเดา):
 #   free = $0 แน่นอน (รันบนเครื่อง / OpenRouter pricing = 0)
@@ -232,6 +316,9 @@ def price_tier(model_id: str, provider: str = "", pricing: dict = None) -> str:
             except Exception:
                 return "tier"
             return "free" if (pin == 0 and pout == 0) else "tier"
+        return "tier"
+    if provider == "tinyfish":
+        # Search/Fetch = ฟรีเสมอ · Agent/Browser/Research = หักเครดิต wallet
         return "tier"
     mode = cfg.get("pricing", "paid")
     if mode == "free":

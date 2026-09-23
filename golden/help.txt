@@ -3,16 +3,18 @@ usage: soonai [-h] [--version] [--provider PROVIDER] [--model MODEL]
               [--agent] [--yes] [--no-boot] [--no-banner]
               [--effort {low,medium,high}] [--resume [RESUME]]
               [--max-steps MAX_STEPS]
-              {setup,ask,exec,providers,models,key,use,pull,auto,sessions,mcp,skills,status,demo,update} ...
+              {setup,ask,exec,providers,provider,models,key,use,pull,auto,sessions,mcp,skills,status,demo,update,git,commit,undo,test} ...
 
 SoonAI CLI — แชทบอททุกค่ายจาก cmd/PowerShell
 
 positional arguments:
-  {setup,ask,exec,providers,models,key,use,pull,auto,sessions,mcp,skills,status,demo,update}
+  {setup,ask,exec,providers,provider,models,key,use,pull,auto,sessions,mcp,skills,status,demo,update,git,commit,undo,test}
     setup               ตัวช่วยตั้งค่าครั้งแรก (แนะนำ)
     ask                 ถามครั้งเดียวแล้วจบ
     exec                โหมด headless สำหรับสคริปต์/CI (ทำงานเดียวแล้วจบ)
     providers           ดูรายชื่อผู้ให้บริการ
+    provider            เพิ่ม/ลบ provider แบบ OpenAI-compatible ด้วย URL + API
+                        key
     models              ดูโมเดลล่าสุดของค่ายนั้น
     key                 จัดการ API keys
     use                 ตั้งค่าเริ่มต้น
@@ -24,6 +26,10 @@ positional arguments:
     status              เช็คสถานะ local + keys
     demo                โชว์กรอบจักรวาลอนิเมชัน (ไม่ใช้เน็ต)
     update              เช็ค + อัปเดตเป็นเวอร์ชันล่าสุด
+    git                 สถานะ/ประวัติ git
+    commit              ร่างข้อความ + commit (ไม่ push)
+    undo                ย้อนกลับ commit ล่าสุด + คืน checkpoint
+    test                รันเทสต์อัตโนมัติ
 
 options:
   -h, --help            show this help message and exit

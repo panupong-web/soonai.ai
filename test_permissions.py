@@ -66,6 +66,14 @@ check("terminal fg + terminal เปิด = allow", r["allow"] is True, r)
 r = P.evaluate("computer_screenshot", {}, pol(), fg={})
 check("screenshot + fg ว่าง = allow", r["allow"] is True, r)
 
+# 5b) vision ส่งภาพออกภายนอก จึงต้องเคารพ app/window scope เช่นเดียวกับ action
+sc = dict(OPEN)
+sc["apps_allow"] = ["notepad.exe"]
+r = P.evaluate("computer_vision", {}, pol(scope=sc), fg={"exe": "chrome.exe"})
+check("vision + app allowlist ไม่ตรง = deny", r["allow"] is False, r)
+r = P.evaluate("computer_vision", {}, pol(scope=sc), fg={"exe": "notepad.exe"})
+check("vision + app allowlist ตรง = allow", r["allow"] is True, r)
+
 # 6) ปิด mouse capability = คลิกไม่ได้แม้ fg เปิดกว้าง
 sc = dict(OPEN)
 sc["mouse"] = False

@@ -16,6 +16,8 @@ import re
 import time
 from pathlib import Path
 
+import debug as _DBG    # โหมด debug: บันทึก traceback ของ exception ที่ถูกกลืน
+
 LEVELS = ("off", "read_only", "interact", "full")
 APPROVALS = ("auto", "ask_risky", "confirm_all")
 
@@ -27,6 +29,9 @@ ACTION_KEYS = {"computer_type", "computer_press", "computer_hotkey"}
 ACTION_FOCUS = {"computer_focus"}
 ACTION_TOOLS = ACTION_MOUSE | ACTION_KEYS | ACTION_FOCUS
 COMPUTER_TOOLS = READ_TOOLS | ACTION_TOOLS | {"computer_vision"}
+# Vision exports the current screen to an external model, so it must obey the
+# same foreground-window policy as an action even though it does not click.
+WINDOW_SCOPED_READ_TOOLS = {"computer_vision"}
 
 # tool -> capability ที่ต้องมีใน scope
 TOOL_CAP = {}
@@ -304,8 +309,8 @@ def evaluate(tool, args, pol, fg=None, now=None):
         return {"allow": False, "confirm": False,
                 "reason": "scope ห้าม %s (เปิดใน config computer.scope)" % need,
                 "risk": "denied", "permission": lvl}
-    # 2) app/window scope (เฉพาะ action ที่แตะหน้าจอจริง)
-    if tool in ACTION_TOOLS:
+    # 2) app/window scope: actions and externally exported vision are scoped.
+    if tool in ACTION_TOOLS | WINDOW_SCOPED_READ_TOOLS:
         deny_hit = _match_any((fg or {}).get("exe", ""), scope.get("apps_deny")) or \
             _match_any((fg or {}).get("title", ""), scope.get("apps_deny"))
         if deny_hit:
@@ -403,8 +408,11 @@ def audit_append(log_path, action, target="", app="", permission="", result="",
             if p.stat().st_size > 1048576:
                 lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
                 p.write_text("\n".join(lines[-4000:]) + "\n", encoding="utf-8")
-        except Exception:
-            pass
+        except Exception as e:
+            _DBG.log_swallowed(e, "permissions.py:audit_append",
+                               "ตัด audit log ให้เล็กลงไม่ได้ — ไฟล์จะบวมขึ้น")
         return True
-    except Exception:
+    except Exception as e:
+        _DBG.log_swallowed(e, "permissions.py:audit_append",
+                           f"เขียน audit log ไม่ได้ ({action}) — ไม่มีร่องรอยการอนุญาต")
         return False

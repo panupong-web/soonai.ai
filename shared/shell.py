@@ -14,6 +14,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import debug as _DBG    # โหมด debug: บันทึก traceback ของ exception ที่ถูกกลืน
 import runtime as R
 
 
@@ -86,8 +87,9 @@ def set_shell_mode(mode, cfg=None, persist=True):
             cfg.setdefault("agent", {})["shell"] = m
             R.save_json(R.CONFIG_FILE, cfg)
             R._SHELL_OVERRIDE["mode"] = None   # config กลายเป็นแหล่งความจริงถาวรแล้ว
-        except Exception:
-            pass
+        except Exception as e:
+            _DBG.log_swallowed(e, "shell.py:set_shell_mode",
+                               f"จำโหมด shell '{m}' ลง config ไม่ได้ — ใช้เฉพาะเซสชันนี้")
     return m
 def _safe_shell_ok(command):
     """คำสั่งนี้รันได้ในโหมด safe ไหม — ต้องเป็นคำสั่งเดียว ไม่มี pipe/ตัวเชื่อม/redirect/ตัวแปร"""

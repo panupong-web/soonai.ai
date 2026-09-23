@@ -1,0 +1,8 @@
+{
+  "openrouter": "<your-openrouter-key>",
+  "huggingface": "<your-huggingface-key>",
+  "gemini": "<your-gemini-api-key>",
+  "together": "<your-together-key>",
+  "tinyfish": "<your-tinyfish-api-key>",
+  "bazaarlink": "<your-bazaarlink-api-key>"
+}

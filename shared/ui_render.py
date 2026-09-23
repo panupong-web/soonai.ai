@@ -285,6 +285,47 @@ def _status_extras(ttl=5.0):
     return R._STATUS_CACHE["extra"]
 
 
+def _age_str(sec):
+    """อายุสั้น ๆ: 45s / 12m"""
+    sec = max(0, int(sec))
+    return f"{sec}s" if sec < 60 else f"{sec // 60}m"
+
+
+def slow_statusline(provider=""):
+    """⚠ ค่ายที่ timeout/ล่มล่าสุด (ภายใน SLOW_TTL) — เห็นทันทีในแถบสถานะ
+    - ค่ายที่ใช้อยู่เพิ่ง timeout → ⚠timeout:5m (อายุครั้งล่าสุด)
+    - ค่ายอื่นที่เพิ่ง timeout → ⚠slow:ชื่อ (ใหม่สุดก่อน โชว์สูงสุด 2 +N)
+    cache 5 วินาที (แถบนี้วาดซ้ำทุกเฟรม) · คืน '' เมื่อไม่มีอะไรน่าเตือน"""
+    now = time.time()
+    c = R._STATUS_CACHE
+    if c.get("slow") is None or now - (c.get("slow_t") or 0) >= 5.0:
+        try:
+            ttl = float(getattr(R, "SLOW_TTL", 900))
+        except Exception:
+            ttl = 900.0
+        try:
+            slow = {str(k): float(v)
+                    for k, v in dict(R._health_load().get("slow") or {}).items()
+                    if isinstance(v, (int, float)) and 0 <= now - float(v) <= ttl}
+        except Exception:
+            slow = {}
+        c["slow"], c["slow_t"] = slow, now
+    slow = c.get("slow") or {}
+    if not slow:
+        return ""
+    out = []
+    if provider in slow:
+        out.append(f"⚠timeout:{_age_str(now - slow[provider])}")
+    others = sorted(((p, now - ts) for p, ts in slow.items() if p != provider),
+                    key=lambda x: x[1])
+    if others:
+        names = [p for p, _ in others[:2]]
+        if len(others) > 2:
+            names.append(f"+{len(others) - 2}")
+        out.append("⚠slow:" + ",".join(names))
+    return " · ".join(out)
+
+
 def status_line(provider="", model="", agent=False, auto_yes=False, effort=""):
     """บรรทัดสถานะสำหรับแถบล่างของ TUI: โมเดล · โหมด · shell · git · token"""
     parts = []
@@ -296,6 +337,12 @@ def status_line(provider="", model="", agent=False, auto_yes=False, effort=""):
         parts.append("AUTO")
     if effort:
         parts.append(f"eff:{effort}")
+    try:
+        sl = slow_statusline(provider)
+        if sl:
+            parts.append(sl)
+    except Exception:
+        pass
     try:
         sh = shell._shell_mode()
         if sh != "off":
@@ -569,14 +616,14 @@ INPUT_STYLE = _input_style()
 
 def build_input_bar(history=None, status=""):
     """ประกอบแถบพิมพ์กรอบจักรวาลอนิเมชัน (ดาวกะพริบ + ดาวตกวิ่งตามขอบ)
-    เมนู / เป็น popup ลอยตามเคอร์เซอร์ — ไม่ต้องมีจอก็ประกอบได้
+    เมนู / แสดง "เหนือ" แถบพิมพ์ (แทรกในกรอบ) — ไม่ต้องมีจอก็ประกอบได้
     คืน (layout, buffer, key_bindings)"""
     from prompt_toolkit.buffer import Buffer
     from prompt_toolkit.completion import Completer, Completion
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.layout import Layout
     from prompt_toolkit.layout.containers import (
-        Float, FloatContainer, HSplit, VSplit, Window)
+        HSplit, VSplit, Window)
     from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
     from prompt_toolkit.layout.menus import CompletionsMenu
     from prompt_toolkit.layout.processors import BeforeInput
@@ -732,20 +779,21 @@ def build_input_bar(history=None, status=""):
         ), wrap_lines=False, style=bar, height=1),
         Window(content=FormattedTextControl(lambda: _side(3)), width=1),
     ])
-    # เมนู / แบบ popup ลอยตามเคอร์เซอร์ (เลื่อนลงแล้วเลื่อนตาม ไม่ค้าง)
+    # เมนู / แสดง "เหนือ" แถบพิมพ์ — แทรกเป็นส่วนหนึ่งของกรอบ
+    # (ระหว่างหัวกรอบกับบรรทัดพิมพ์) แทน Float ลอยตามเคอร์เซอร์แบบเดิมที่
+    # ห้อยลงล่าง: โหมด inline ของ prompt_toolkit วาดแถวเหนือหัวกรอบไม่ได้
+    # (แถวบนสุดของจอ ptk คือหัวกรอบ — เหนือขึ้นไปคือ history ที่พิมพ์ไว้ก่อน วาดทับไม่ได้)
+    # มี completion = กรอบขยายลงล่าง บรรทัดพิมพ์ขยับลงตามเมนู
+    # ไม่มี completion = ConditionalContainer ซ่อน (สูง 0) → กรอบ 4 แถวเหมือนเดิม
+    menu_zone = CompletionsMenu(max_height=6, scroll_offset=1, display_arrows=True)
     body = HSplit([
         Window(content=FormattedTextControl(_top), height=1),
+        menu_zone,
         mid,
         Window(content=FormattedTextControl(_bottom), height=1),
         Window(content=FormattedTextControl(_label), height=1),
     ])
-    root = FloatContainer(
-        content=body,
-        floats=[Float(xcursor=True, ycursor=True,
-                      content=CompletionsMenu(max_height=6, scroll_offset=1,
-                                             display_arrows=True))],
-    )
-    layout = Layout(root, focused_element=mid.children[1])
+    layout = Layout(body, focused_element=mid.children[1])
     return layout, buf, kb
 
 

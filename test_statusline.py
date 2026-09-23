@@ -8,8 +8,10 @@
 ไม่แตะเน็ต (เขียน temp ไฟล์ในโฟลเดอร์งานชั่วคราว)
 """
 import io
+import json
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, ".")
@@ -119,6 +121,41 @@ try:
     check("input bar: สร้างได้พร้อมสถานะยาว", layout is not None and buf is not None)
     check("input bar: ยังคุมความกว้างของกรอบได้", S._dwidth(long_status) > 60)
     check("input bar: สถานะว่างก็ยังประกอบได้", S.build_input_bar(None, "")[0] is not None)
+
+    # ---------- ⚠ statusline: ค่าย timeout ล่าสุด ----------
+    _orig_hf = S._health_file
+    S._health_file = lambda: tmp / "health.json"
+    try:
+        S._STATUS_CACHE["slow"] = None
+        check("slow: ไม่มีอะไร = ไม่โชว์", S.slow_statusline("openrouter") == "",
+              S.slow_statusline("openrouter"))
+        S._health_note_slow("openrouter")
+        S._STATUS_CACHE["slow"] = None
+        mark = S.slow_statusline("openrouter")
+        check("slow: ค่ายที่เพิ่ง timeout = ⚠timeout + อายุ", "⚠timeout:" in mark, mark)
+        check("slow: มีแค่ค่ายนี้ = ไม่โชว์ค่ายอื่น", "⚠slow:" not in mark, mark)
+        other = S.slow_statusline("groq")
+        check("slow: ค่ายอื่นมองเห็นเป็น ⚠slow:ชื่อ", "⚠slow:openrouter" in other, other)
+        S._STATUS_CACHE["slow"] = None
+        line = S.status_line("openrouter", "cohere/x")
+        check("status: เซกเมนต์ ⚠timeout อยู่ในแถบสถานะจริง", "⚠timeout:" in line, line)
+        # cache 5s: แก้ไฟล์กลางทางในช่วง cache = ยังค่าเดิม (ทุกเฟรมไม่ยิงไฟล์ซ้ำ)
+        a1 = S.slow_statusline("openrouter")
+        (tmp / "health.json").write_text(
+            json.dumps({"slow": {"groq": time.time()}}), encoding="utf-8")
+        a2 = S.slow_statusline("openrouter")
+        check("slow: cache 5s (ไม่อ่านไฟล์ซ้ำทุกเฟรม)",
+              "⚠timeout:" in a1 and "⚠slow:groq" not in a2 and a1 == a2, (a1, a2))
+        # หมดอายุ (เกิน SLOW_TTL) = เงียบ
+        (tmp / "health.json").write_text(
+            json.dumps({"slow": {"openrouter": time.time() - S.SLOW_TTL - 60}}),
+            encoding="utf-8")
+        S._STATUS_CACHE["slow"] = None
+        check("slow: เกิน SLOW_TTL = ไม่โชว์", S.slow_statusline("openrouter") == "",
+              S.slow_statusline("openrouter"))
+    finally:
+        S._health_file = _orig_hf
+        S._STATUS_CACHE["slow"] = None
 finally:
     S.workspace_root, S.load_config, S.console = _orig
 

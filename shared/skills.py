@@ -26,6 +26,7 @@ import requests
 from rich.panel import Panel
 from rich.prompt import Prompt
 
+import debug as _DBG    # โหมด debug: บันทึก traceback ของ exception ที่ถูกกลืน
 import project as _project
 import runtime as R
 import shell as _shell
@@ -689,7 +690,9 @@ def search_github_skills(query, limit=6):
                                  "description": str(it.get("description") or "")[:110],
                                  "path": path})
                     break
-            except Exception:
+            except Exception as e:
+                _DBG.log_swallowed(e, "skills.py:search_github_skills",
+                                   f"เช็ค SKILL.md ของ {full} ผ่าน GitHub API ไม่ได้ — ลองตัวถัดไป")
                 continue
         if len(rows) >= limit:
             break
@@ -832,8 +835,9 @@ def ai_suggest_skills(provider, model, question="", facts=None, limit=4):
     installed = []
     try:
         installed = sorted(scan_skills())
-    except Exception:
-        pass
+    except Exception as e:
+        _DBG.log_swallowed(e, "skills.py:ai_suggest_skills",
+                           "สแกนสกิลที่ติดตั้งอยู่ไม่ได้ — จะเสนอโดยไม่รู้ว่าตัวไหนมีแล้ว")
     ctx = (f"[โปรเจกต์] {facts.get('root')}\n"
            f"ภาษา: {', '.join(facts.get('languages') or []) or '-'}\n"
            f"คำสั่งเทสต์: {facts.get('test_command') or '-'}\n"
@@ -891,8 +895,9 @@ def _skill_state():
 def _skill_state_save():
     try:
         R.save_json(R.SKILL_STATE_FILE, _skill_state())
-    except Exception:
-        pass
+    except Exception as e:
+        _DBG.log_swallowed(e, "skills.py:_skill_state_save",
+                           "จำความเคยชินของสกิลลงดิสก์ไม่ได้ — การเรียนรู้รอบนี้จะหาย")
 
 
 def _skill_decline_limit():
@@ -1535,22 +1540,40 @@ def cmd_skills(args, keys=None, cfg=None):
             return 1
         t = read_skill_text(target, max_chars=4000)
         if not t:
-            R.console.print(f"[yellow]ไม่พบ skill: {target}[/yellow]")
+            try:
+                R.console.print(f"[yellow]ไม่พบ skill: {target}[/yellow]")
+            except OSError:
+                print(f"[yellow]ไม่พบ skill: {target}[/yellow]")
             return 1
-        R.console.print(Panel(t[:4000], title=f"skill: {target}", border_style="cyan"))
+        try:
+            R.console.print(Panel(t[:4000], title=f"skill: {target}", border_style="cyan"))
+        except OSError:
+            print(t[:4000])
         return 0
     if action == "menu":
         return skills_install_menu(force=force)
     table = skills_table()
     if table is None:
-        R.console.print("[dim]ยังไม่มี skills — ติดตั้งชุดแนะนําทันทีได้เลย:\n"
-                      "  [bold]soonai skills all[/bold]        ติดตั้งทุกตัวจากแคตตาล็อกในตัว\n"
-                      "  [bold]soonai skills[/bold]            เปิดเมนูเลือกติดตั้ง\n"
-                      "  [bold]soonai skills add owner/repo[/bold]  จาก GitHub\n"
-                      "  [bold]soonai skills new <ชื่อ>[/bold]     สร้างของเองใหม่[/dim]")
-        R.console.print(skill_catalog_table())
+        try:
+            R.console.print("[dim]ยังไม่มี skills — ติดตั้งชุดแนะนําทันทีได้เลย:\n"
+                          "  [bold]soonai skills all[/bold]        ติดตั้งทุกตัวจากแคตตาล็อกในตัว\n"
+                          "  [bold]soonai skills[/bold]            เปิดเมนูเลือกติดตั้ง\n"
+                          "  [bold]soonai skills add owner/repo[/bold]  จาก GitHub\n"
+                          "  [bold]soonai skills new <ชื่อ>[/bold]     สร้างของเองใหม่[/dim]")
+            R.console.print(skill_catalog_table())
+        except OSError:
+            print("ยังไม่มี skills — ติดตั้งชุดแนะนําทันทีได้เลย:")
+            print("  soonai skills all        ติดตั้งทุกตัวจากแคตตาล็อกในตัว")
+            print("  soonai skills            เปิดเมนูเลือกติดตั้ง")
+            print("  soonai skills add owner/repo  จาก GitHub")
+            print("  soonai skills new <ชื่อ>     สร้างของเองใหม่")
         return 0
-    R.console.print(table)
-    R.console.print("[dim]อ่านฉบับเต็ม: soonai skills show <ชื่อ> · ลบ: soonai skills rm <ชื่อ> · "
-                  "เพิ่ม: soonai skills add <ชื่อ/owner/repo/URL> · ทั้งชุด: soonai skills all[/dim]")
+    try:
+        R.console.print(table)
+        R.console.print("[dim]อ่านฉบับเต็ม: soonai skills show <ชื่อ> · ลบ: soonai skills rm <ชื่อ> · "
+                      "เพิ่ม: soonai skills add <ชื่อ/owner/repo/URL> · ทั้งชุด: soonai skills all[/dim]")
+    except OSError:
+        print(table)
+        print("อ่านฉบับเต็ม: soonai skills show <ชื่อ> · ลบ: soonai skills rm <ชื่อ> · "
+              "เพิ่ม: soonai skills add <ชื่อ/owner/repo/URL> · ทั้งชุด: soonai skills all")
     return 0

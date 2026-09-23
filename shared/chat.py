@@ -27,6 +27,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+import debug as _DBG    # โหมด debug: บันทึก traceback ของ exception ที่ถูกกลืน
 import runtime as R      # noqa: F401 - ศูนย์ seam/state (attribute access เท่านั้น)
 
 
@@ -79,8 +80,9 @@ def read_input(st):
             return _framed_input(st)
         except (EOFError, KeyboardInterrupt):
             raise
-        except Exception:
-            pass
+        except Exception as e:
+            # ชั้นกรอบอินพุตพัง (prompt_toolkit/เทอร์มินัล) → ตกไปใช้ prompt ธรรมดา
+            _DBG.log_swallowed(e, "chat.py:read_input", "กรอบอินพุตพัง — ใช้ prompt ธรรมดาแทน")
     if st.ptk_session is not None:
         try:
             R.console.print(R.input_box_top(st.provider, st.model, st.agent, st.auto_yes, st.effort),
@@ -363,7 +365,8 @@ def handle_command(st, q):
             R.console.print(f"[yellow]ทีมเต็มแล้ว (สูงสุด {R.MAX_STAFF} คน) — /fire ออกก่อน[/yellow]")
             return True
         fp = R.fuzzy_pick("Select provider:",
-                        [(pid, f"{pid} — {p['name']}") for pid, p in R.PROVIDERS.items()])
+                        [(pid, f"{pid} — {p['name']}") for pid, p in R.PROVIDERS.items()
+                         if not p.get("tool_only")])
         if fp:
             pid = fp
         elif fp == "":
@@ -659,9 +662,13 @@ def handle_command(st, q):
                 st.history.insert(0, {"role": "system", "content": st.cfg["system"]})
             st.sid = it["id"]
             R.touch_session(st.sid)
+            _ttl = R.refresh_session_title(st.sid, st.provider, st.model,
+                                            st.history) or it.get("name", "")
             R.console.print(Panel(f"[bold]{R.PROVIDERS[st.provider]['name']}[/bold] / {st.model}\n"
-                                f"[dim]คุยต่อ session {st.sid}[/dim]",
+                                + (f"[bold]{_ttl}[/bold]\n" if _ttl else "")
+                                + f"[dim]คุยต่อ session {st.sid}[/dim]",
                                 title="SoonAI chat", border_style="cyan"))
+            _replay_history(st.history)
         elif picked[0] == "new":
             R.maybe_reflect(st.provider, st.model, st.history, st.sid)
             st.history = [m for m in st.history if m.get("role") == "system"]
@@ -709,11 +716,13 @@ def handle_command(st, q):
                 return True
             R.console.print(_hub.add_server(nm, bits[0], bits[1:]))
             R.agent_tools(refresh=True)
-        elif sub2 in ("rm", "on", "off", "test", "tools", "refresh", "list"):
+        elif sub2 in ("rm", "on", "off", "test", "tools", "refresh", "list",
+                      "install", "catalog"):
             R.cmd_mcp(argparse.Namespace(action=sub2, target=arg2, rest=[], env=[]),
                     st.keys, st.cfg)
         else:
-            R.console.print("[dim]/mcp [list|tools|test|on|off|rm|refresh|add] [ชื่อ][/dim]")
+            R.console.print("[dim]/mcp [list|catalog|install <ชื่อ>|tools|test|on|off|rm|"
+                            "refresh|add] [ชื่อ][/dim]")
         return True
     if q.lower() == "/skills" or q.lower().startswith("/skills "):
         _, _, tail = q.partition(" ")
@@ -833,9 +842,13 @@ def handle_command(st, q):
             st.history.insert(0, {"role": "system", "content": st.cfg["system"]})
         st.sid = it["id"]
         R.touch_session(st.sid)
+        _ttl = R.refresh_session_title(st.sid, st.provider, st.model,
+                                       st.history) or it.get("name", "")
         R.console.print(Panel(f"[bold]{R.PROVIDERS[st.provider]['name']}[/bold] / {st.model}\n"
-                            f"[dim]คุยต่อ session {st.sid}[/dim]",
+                            + (f"[bold]{_ttl}[/bold]\n" if _ttl else "")
+                            + f"[dim]คุยต่อ session {st.sid}[/dim]",
                             title="SoonAI chat", border_style="cyan"))
+        _replay_history(st.history)
         return True
     if q.lower() == "/model":
         m2 = R.pick_model(st.provider, st.keys)
@@ -916,16 +929,44 @@ def handle_command(st, q):
     return False
 
 
+def _replay_history(history, limit=6):
+    """โชว์บทสนทนาล่าสุดตอน resume — เดิมโหลดเข้า memory เฉย ๆ ไม่โชว์
+    ผู้ใช้เลยนึกว่าแชทเก่าไม่กลับมา"""
+    msgs = [m for m in history or []
+            if isinstance(m, dict) and m.get("role") in ("user", "assistant")
+            and str(m.get("content") or "").strip()
+            and not str(m.get("content") or "").startswith(R.COMPACT_MARK)]
+    if not msgs:
+        return
+    tail = msgs[-limit:]
+    skipped = len(msgs) - len(tail)
+    note = f" · ตัดข้างบน {skipped} ข้อความ" if skipped else ""
+    R.console.print(f"[dim]── ย้อนดูบทสนทนาล่าสุด ({len(msgs)} ข้อความ{note}) ──[/dim]")
+    for m in tail:
+        text = str(m.get("content") or "").strip()
+        if len(text) > 400:
+            text = text[:400] + " …"
+        if m.get("role") == "user":
+            R.console.print(Text(f"> {text}", style="cyan"))
+        else:
+            R.console.print(Text(text, style="dim"))
+    R.console.print("[dim]── จบการย้อนดู ──[/dim]")
+
+
 def cmd_chat(args, keys, cfg):
     """ห้องแชท (ทางเข้าเดิมของ CLI) — bootstrap → ลูปอ่านคำสั่ง → ส่งงานโมเดล"""
     st = ChatState(args, keys, cfg)
     if sys.stdin.isatty():
+        # โหมด debug เปิดอยู่ = โชว์สรุปว่า exception ถูกกลืนซ้ำที่จุดไหนบ้าง (จาก log ที่ค้าง)
+        # เฉพาะตอนคุยกับคน (ไม่พิมพ์ใส่ pipe/โหมดเครื่องอ่าน output)
+        for _line in _DBG.startup_lines():
+            R.console.print(_line, style="dim", highlight=False)
         try:
             _um = R.check_update(st.cfg)
             if _um:
                 R.update_popup(st.cfg, _um)
-        except Exception:
-            pass
+        except Exception as e:
+            _DBG.log_swallowed(e, "chat.py:cmd_chat", "ตรวจอัปเดตตอนเปิดห้องไม่สำเร็จ")
     st.provider = st.args.provider or st.cfg.get("provider", "ollama")
     if st.provider not in R.PROVIDERS:
         R.console.print(f"[red]ไม่รู้จัก provider: {st.provider}[/red]")
@@ -951,7 +992,12 @@ def cmd_chat(args, keys, cfg):
         st.model = R.ensure_model_valid(st.provider, st.model, st.keys)
         if not st.model:
             return 1
+        _ttl = R.refresh_session_title(st.sid, st.provider, st.model,
+                                       st.history) or it.get("name", "")
         R.console.print(f"[green]คุยต่อ session {st.sid} ({len([m for m in st.history if m.get('role') == 'user'])} รอบ)[/green]")
+        if _ttl:
+            R.console.print(f"[dim]หัวข้อ: {_ttl}[/dim]")
+        _replay_history(st.history)
     else:
         st.model = R.resolve_model(st.provider, st.args.model, st.keys,
                               free_only=st.args.free_only, search=st.args.search)
@@ -1069,16 +1115,18 @@ def cmd_chat(args, keys, cfg):
         elif not q.startswith("/") and not st.agent and R.boost_mode(st.cfg) != "off" and sys.stdin.isatty():
             _bm = R.boost_mode(st.cfg)
             if R.boost_worth_it(q, _bm):
-                R.console.print("[dim](รับคำถามแล้ว กำลังเตรียม…)[/dim]")
-            try:
-                enhanced = R.boost_prompt(st.provider, st.model, q, _bm)
-            except (R.TurnCancelled, KeyboardInterrupt):
-                R.console.print("[dim](ยกเลิกแล้ว — กลับมารอคำสั่ง)[/dim]")
-                continue
-            if enhanced and enhanced != q:
-                if os.environ.get("SOONAI_DEBUG"):
-                    R.console.print(f"[dim]พร้อมที่ปรับแล้ว: {enhanced}[/dim]")
-                q = enhanced
+                try:
+                    # สปินเนอร์ + วินาทีนับ — ให้เห็นว่ากำลังเกลาคำถาม (ไม่ค้างเงียบ)
+                    enhanced = R.run_with_spinner(
+                        "กำลังเตรียมคำถาม…",
+                        R.boost_prompt, st.provider, st.model, q, _bm)
+                except (R.TurnCancelled, KeyboardInterrupt):
+                    R.console.print("[dim](ยกเลิกแล้ว — กลับมารอคำสั่ง)[/dim]")
+                    continue
+                if enhanced and enhanced != q:
+                    if _DBG.enabled():
+                        R.console.print(f"[dim]พร้อมที่ปรับแล้ว: {enhanced}[/dim]")
+                    q = enhanced
         st.history.append({"role": "user", "content": q})
         R.console.print(Text(f"> {q}", style="cyan"))
         R.console.print(Text.assemble(("AI [", "bold green"), (R.short_model(st.model), "bold green"),
@@ -1121,13 +1169,17 @@ def cmd_chat(args, keys, cfg):
                         R.console.print("[dim](ข้ามการตรวจ)[/dim]")
                 st.history = R.auto_compact_history(st.provider, st.model, st.history)
                 st.sid = R.save_session(st.sid or R._session_id(), st.provider, st.model, st.history)
+                R.refresh_session_title(st.sid, st.provider, st.model, st.history)
                 st.history = st.history[-21:]
             else:
                 R.console.print(R.nothing_done_reason(msgs))
                 st.history.pop()
             continue
         try:
-            ans = R.show_reply(st.provider, st.model, st.history, st.temperature, effort=st.effort)
+            # แนบ hint MCP บนสำเนาก่อนส่ง — st.history ที่บันทึก session ห้ามมี hint ค้างข้ามเทิร์น
+            _send = list(st.history)
+            R._ensure_mcp_hint(_send)
+            ans = R.show_reply(st.provider, st.model, _send, st.temperature, effort=st.effort)
         except (R.TurnCancelled, KeyboardInterrupt):
             st.history.pop()
             R.console.print("[dim](ยกเลิกแล้ว — กลับมารอคำสั่ง)[/dim]")
@@ -1142,6 +1194,7 @@ def cmd_chat(args, keys, cfg):
                     R.console.print("[dim](ข้ามการตรวจ)[/dim]")
             st.history = R.auto_compact_history(st.provider, st.model, st.history)
             st.sid = R.save_session(st.sid or R._session_id(), st.provider, st.model, st.history)
+            R.refresh_session_title(st.sid, st.provider, st.model, st.history)
             st.history = st.history[-21:]
         else:
             st.history.pop()

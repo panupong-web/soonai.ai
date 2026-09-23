@@ -1,0 +1,402 @@
+{
+  "_comment": "MCP Server Catalog — รายชื่อ MCP servers ที่นิยม ใช้กับ 'soonai mcp install'",
+  "version": "1.0",
+  "updated": "2026-09-22",
+  "servers": {
+    "filesystem": {
+      "name": "File System",
+      "description": "อ่าน/เขียน/ลิสต์ไฟล์ในโฟลเดอร์",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+      "env": {},
+      "category": "core",
+      "tags": ["file", "read", "write", "list"],
+      "popular": true
+    },
+    "github": {
+      "name": "GitHub",
+      "description": "ดู PRs, issues, commits, file content จาก GitHub",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {"GITHUB_TOKEN": ""},
+      "category": "dev",
+      "tags": ["github", "pr", "issue", "code-review"],
+      "popular": true,
+      "requires_auth": true
+    },
+    "gitlab": {
+      "name": "GitLab",
+      "description": "ดู MRs, issues, pipelines จาก GitLab",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-gitlab"],
+      "env": {"GITLAB_TOKEN": ""},
+      "category": "dev",
+      "tags": ["gitlab", "mr", "pipeline"],
+      "requires_auth": true
+    },
+    "slack": {
+      "name": "Slack",
+      "description": "อ่าน/ส่งข้อความ Slack",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-slack"],
+      "env": {"SLACK_BOT_TOKEN": ""},
+      "category": "communication",
+      "tags": ["slack", "message", "channel"],
+      "requires_auth": true
+    },
+    "postgres": {
+      "name": "PostgreSQL",
+      "description": "Query, read, write PostgreSQL databases",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "env": {"DATABASE_URL": ""},
+      "category": "database",
+      "tags": ["sql", "postgres", "query"],
+      "requires_auth": true
+    },
+    "mysql": {
+      "name": "MySQL",
+      "description": "Query, read, write MySQL databases",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-mysql"],
+      "env": {"DATABASE_URL": ""},
+      "category": "database",
+      "tags": ["sql", "mysql", "query"],
+      "requires_auth": true
+    },
+    "firebase": {
+      "name": "Firebase",
+      "description": "Firestore, Auth, Storage management",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-firebase"],
+      "env": {"FIREBASE_CREDENTIALS": ""},
+      "category": "database",
+      "tags": ["firebase", "firestore", "auth"]
+    },
+    "supabase": {
+      "name": "Supabase",
+      "description": "Supabase database, auth, storage",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-supabase"],
+      "env": {"SUPABASE_URL": "", "SUPABASE_KEY": ""},
+      "category": "database",
+      "tags": ["supabase", "sql", "auth"],
+      "requires_auth": true
+    },
+    "browser": {
+      "name": "Browser",
+      "description": "Automate browser — click, type, navigate, screenshot",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-browser"],
+      "env": {},
+      "category": "automation",
+      "tags": ["browser", "web", "screenshot", "click"],
+      "popular": true
+    },
+    "fetch": {
+      "name": "Fetch",
+      "description": "Fetch web pages and extract content",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-fetch"],
+      "env": {},
+      "category": "web",
+      "tags": ["http", "fetch", "url", "web"]
+    },
+    "tinyfish": {
+      "name": "TinyFish Web Agent",
+      "description": "Search/Fetch/Agent/Browser API ของ TinyFish (search+fetch ฟรี 30 ครั้ง/นาที) — ผ่าน https://agent.tinyfish.ai/mcp (OAuth เปิดเบราว์เซอร์ครั้งแรก)",
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://agent.tinyfish.ai/mcp"],
+      "env": {"TINYFISH_API_KEY": ""},
+      "category": "web",
+      "tags": ["web", "search", "fetch", "browser", "agent", "tinyfish"],
+      "popular": true,
+      "requires_auth": true
+    },
+    "context7": {
+      "name": "Context7",
+      "description": "ค้นเอกสาร/โค้ดไลบรารีเวอร์ชันล่าสุดของแพ็กเกจ — streamable HTTP ตรงถึง mcp.context7.com ไม่ต้องลง node/npx (ใช้ได้เลย ไม่ต้องมี key; มี key ใส่ headers CONTEXT7_API_KEY ได้)",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {},
+      "category": "web",
+      "tags": ["docs", "library", "version", "code", "http"],
+      "popular": true
+    },
+    "deepwiki": {
+      "name": "DeepWiki",
+      "description": "ค้น wiki/คำตอบของ repo GitHub ทุก repo (Devin) — streamable HTTP ตรง ไม่ต้องลง node/npx (ใช้ได้เลย ไม่ต้องมี key)",
+      "url": "https://mcp.deepwiki.com/mcp",
+      "headers": {},
+      "category": "web",
+      "tags": ["github", "wiki", "docs", "search", "http"]
+    },
+    "websearch": {
+      "name": "Web Search",
+      "description": "Search the web — Google/Bing/DuckDuckGo",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-websearch"],
+      "env": {"SEARCH_API_KEY": ""},
+      "category": "web",
+      "tags": ["search", "web", "google", "duckduckgo"]
+    },
+    "notion": {
+      "name": "Notion",
+      "description": "Read/write Notion pages, databases",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-notion"],
+      "env": {"NOTION_TOKEN": ""},
+      "category": "productivity",
+      "tags": ["notion", "page", "database"],
+      "requires_auth": true
+    },
+    "figma": {
+      "name": "Figma",
+      "description": "Read/write Figma designs, nodes, components",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-figma"],
+      "env": {"FIGMA_TOKEN": ""},
+      "category": "design",
+      "tags": ["figma", "design", "component"],
+      "requires_auth": true
+    },
+    "linear": {
+      "name": "Linear",
+      "description": "Manage Linear issues, projects, teams",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-linear"],
+      "env": {"LINEAR_API_KEY": ""},
+      "category": "project",
+      "tags": ["linear", "issue", "project", "kanban"],
+      "requires_auth": true
+    },
+    "jira": {
+      "name": "Jira",
+      "description": "Read/write Jira issues, boards, sprints",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-jira"],
+      "env": {"JIRA_TOKEN": ""},
+      "category": "project",
+      "tags": ["jira", "issue", "sprint"],
+      "requires_auth": true
+    },
+    "vercel": {
+      "name": "Vercel Deploy",
+      "description": "Deploy and manage Vercel projects",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-vercel"],
+      "env": {"VERCEL_TOKEN": ""},
+      "category": "devops",
+      "tags": ["vercel", "deploy", "ci-cd"]
+    },
+    "cloudflare": {
+      "name": "Cloudflare",
+      "description": "Manage Cloudflare workers, DNS, CDN",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-cloudflare"],
+      "env": {"CLOUDFLARE_API_TOKEN": ""},
+      "category": "devops",
+      "tags": ["cloudflare", "dns", "cdn", "workers"]
+    },
+    "docker": {
+      "name": "Docker",
+      "description": "Manage Docker containers, images, volumes",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-docker"],
+      "env": {},
+      "category": "devops",
+      "tags": ["docker", "container", "image"]
+    },
+    "aws": {
+      "name": "AWS",
+      "description": "AWS S3, Lambda, EC2, CloudWatch management",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-aws"],
+      "env": {"AWS_ACCESS_KEY_ID": "", "AWS_SECRET_ACCESS_KEY": ""},
+      "category": "cloud",
+      "tags": ["aws", "s3", "lambda", "ec2"],
+      "requires_auth": true
+    },
+    "gcp": {
+      "name": "Google Cloud",
+      "description": "GCP BigQuery, Cloud Functions, Storage",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-gcp"],
+      "env": {"GOOGLE_APPLICATION_CREDENTIALS": ""},
+      "category": "cloud",
+      "tags": ["gcp", "bigquery", "gcs"],
+      "requires_auth": true
+    },
+    "azure": {
+      "name": "Azure",
+      "description": "Azure Blob Storage, Functions, CosmosDB",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-azure"],
+      "env": {"AZURE_CONNECTION_STRING": ""},
+      "category": "cloud",
+      "tags": ["azure", "blob", "function"],
+      "requires_auth": true
+    },
+    "mongodb": {
+      "name": "MongoDB",
+      "description": "Query MongoDB collections",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-mongodb"],
+      "env": {"MONGODB_CONNECTION_STRING": ""},
+      "category": "database",
+      "tags": ["mongodb", "nosql", "query"]
+    },
+    "redis": {
+      "name": "Redis",
+      "description": "Read/write Redis cache",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-redis"],
+      "env": {"REDIS_URL": ""},
+      "category": "database",
+      "tags": ["redis", "cache", "key-value"]
+    },
+    "elasticsearch": {
+      "name": "Elasticsearch",
+      "description": "Search and analyze Elasticsearch indices",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-elasticsearch"],
+      "env": {"ELASTICSEARCH_URL": ""},
+      "category": "search",
+      "tags": ["elasticsearch", "search", "index"]
+    },
+    "airtable": {
+      "name": "Airtable",
+      "description": "Read/write Airtable bases, records",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-airtable"],
+      "env": {"AIRTABLE_TOKEN": ""},
+      "category": "database",
+      "tags": ["airtable", "database", "spreadsheet"]
+    },
+    "google-calendar": {
+      "name": "Google Calendar",
+      "description": "Create events, read calendar",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-google-calendar"],
+      "env": {"GOOGLE_OAUTH_TOKEN": ""},
+      "category": "productivity",
+      "tags": ["calendar", "event", "google"]
+    },
+    "email": {
+      "name": "Email",
+      "description": "Send emails via Gmail/SMTP",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-email"],
+      "env": {"GMAIL_TOKEN": ""},
+      "category": "communication",
+      "tags": ["email", "gmail", "smtp"]
+    },
+    "twilio": {
+      "name": "Twilio",
+      "description": "Send SMS/WhatsApp messages",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-twilio"],
+      "env": {"TWILIO_ACCOUNT_SID": "", "TWILIO_AUTH_TOKEN": ""},
+      "category": "communication",
+      "tags": ["sms", "whatsapp", "twilio"]
+    },
+    "obsidian": {
+      "name": "Obsidian",
+      "description": "Read/write Obsidian vault",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-obsidian"],
+      "env": {"OBSIDIAN_VAULT_PATH": ""},
+      "category": "productivity",
+      "tags": ["obsidian", "notes", "markdown"]
+    },
+    "discord": {
+      "name": "Discord",
+      "description": "Read/write Discord channels, messages",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-discord"],
+      "env": {"DISCORD_TOKEN": ""},
+      "category": "communication",
+      "tags": ["discord", "channel", "message"]
+    },
+    "todoist": {
+      "name": "Todoist",
+      "description": "Manage Todoist tasks and projects",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-todoist"],
+      "env": {"TODOIST_API_KEY": ""},
+      "category": "productivity",
+      "tags": ["todoist", "task", "todo"]
+    },
+    "zapier": {
+      "name": "Zapier",
+      "description": "Trigger and manage Zapier workflows",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-zapier"],
+      "env": {"ZAPIER_API_KEY": ""},
+      "category": "automation",
+      "tags": ["zapier", "automation", "workflow"]
+    },
+    "hubspot": {
+      "name": "HubSpot",
+      "description": "CRM — contacts, deals, companies",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-hubspot"],
+      "env": {"HUBSPOT_ACCESS_TOKEN": ""},
+      "category": "crm",
+      "tags": ["hubspot", "crm", "contact", "deal"]
+    },
+    "stripe": {
+      "name": "Stripe",
+      "description": "Manage Stripe payments, customers, products",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-stripe"],
+      "env": {"STRIPE_SECRET_KEY": ""},
+      "category": "finance",
+      "tags": ["stripe", "payment", "customer"]
+    },
+    "notion-database": {
+      "name": "Notion Database",
+      "description": "Query and manipulate Notion databases",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-notion"],
+      "env": {"NOTION_TOKEN": ""},
+      "category": "productivity",
+      "tags": ["notion", "database", "query"]
+    },
+    "secrets": {
+      "name": "Secrets Manager",
+      "description": "Read secrets from AWS Secrets Manager / HashiCorp Vault",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-secrets"],
+      "env": {"AWS_SECRET_NAME": ""},
+      "category": "security",
+      "tags": ["secrets", "vault", "aws"]
+    },
+    "brave-search": {
+      "name": "Brave Search",
+      "description": "Private web search",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {"BRAVE_API_KEY": ""},
+      "category": "web",
+      "tags": ["search", "brave", "private"]
+    },
+    "code-runner": {
+      "name": "Code Runner",
+      "description": "Run code snippets in sandbox",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-code-runner"],
+      "env": {},
+      "category": "dev",
+      "tags": ["code", "run", "sandbox"]
+    },
+    "filesystem-browsing": {
+      "name": "File Browser",
+      "description": "Browse directory tree, preview files",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+      "env": {},
+      "category": "core",
+      "tags": ["file", "browse", "tree"]
+    }
+  }
+}
