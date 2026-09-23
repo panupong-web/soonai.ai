@@ -31,8 +31,9 @@ debug.log.[0-9]*
 # เก็บ "ตัวอย่าง" ที่ไม่มีพาธส่วนตัวไว้ที่ shared/mcp.example.json แทน
 shared/mcp.json
 
-# ผลรันที่สร้างใหม่ได้ (python depgraph.py)
+# ผลรันที่สร้างใหม่ได้ (python depgraph.py · eval_ambiguous.py)
 .freebuff/arch.html
+eval_results.json
 
 # รหัสเฉพาะเครื่อง (ไม่เกี่ยวกับงาน)
 .freebuff/project-id
