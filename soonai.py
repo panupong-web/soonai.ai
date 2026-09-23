@@ -7352,21 +7352,54 @@ def ensure_key(provider, keys):
     return False
 
 
+ADD_PROVIDER_CHOICE = "__add_custom_provider__"
+
+
+def add_custom_provider_flow(keys, cfg):
+    """เพิ่มค่ายเอง (OpenAI-compatible) ระหว่างเมนูเปลี่ยนค่าย
+    ถาม ชื่อ/URL/โมเดล → cmd_provider add (ถาม key แบบซ่อนจอเองเมื่อเป็น tty)
+    คืน pid ใหม่ถ้าสำเร็จ / None ถ้ายกเลิกหรือไม่ผ่านตรวจสอบ"""
+    try:
+        name = Prompt.ask("ชื่อค่ายใหม่ (a-z, 0-9, _, -)", default="").strip().lower()
+        url = Prompt.ask("Base URL (เช่น https://api.example.com/v1)", default="").strip()
+        model = Prompt.ask("โมเดลเริ่มต้น", default="").strip()
+    except (EOFError, KeyboardInterrupt):
+        console.print()
+        return None
+    ns = argparse.Namespace(action="add", name=name, url=url, model=model,
+                            display_name="", models_url="", api_key=None,
+                            key_env="", header=[])
+    try:
+        rc = cmd_provider(ns, keys, cfg)
+    except Exception as e:
+        console.print(f"[red]เพิ่มค่ายไม่สำเร็จ: {e}[/red]")
+        return None
+    return name if rc == 0 else None
+
+
 def switch_provider(keys, cfg):
-    """ให้ผู้ใช้เลือกค่ายใหม่ + โมเดล (เหมือน dropdown บนเว็บ) คืน (provider, model) หรือ None"""
-    cmd_providers(argparse.Namespace(), keys, cfg)
-    fp = fuzzy_pick("Select provider:",
-                    [(pid, f"{pid} — {p['name']}") for pid, p in PROVIDERS.items()
-                     if not p.get("tool_only")])
-    if fp:
-        pid = fp
-    elif fp == "":
-        return None
-    else:
-        pid = Prompt.ask("เลือกค่าย (provider id)", default=cfg.get("provider", "ollama")).strip()
-    if pid not in PROVIDERS:
-        console.print(f"[red]ไม่รู้จัก provider: {pid}[/red]")
-        return None
+    """ให้ผู้ใช้เลือกค่ายใหม่ + โมเดล (เหมือน dropdown บนเว็บ) คืน (provider, model) หรือ None
+    มีหัวข้อ ➕ เพิ่มค่ายเอง — เพิ่มเสร็จ = เลือกค่ายนั้นต่อทันที (กด Esc ยกเลิก = วนดูเมนูใหม่)"""
+    pid = ""
+    while not pid:
+        cmd_providers(argparse.Namespace(), keys, cfg)
+        fp = fuzzy_pick("Select provider:",
+                        [(p, f"{p} — {spec['name']}") for p, spec in PROVIDERS.items()
+                         if not spec.get("tool_only")]
+                        + [(ADD_PROVIDER_CHOICE,
+                            "➕ เพิ่มค่ายเอง — OpenAI-compatible (URL + API key)")])
+        if fp == ADD_PROVIDER_CHOICE:
+            pid = add_custom_provider_flow(keys, cfg) or ""
+            continue
+        if fp:
+            pid = fp
+        elif fp == "":
+            return None
+        else:
+            pid = Prompt.ask("เลือกค่าย (provider id)", default=cfg.get("provider", "ollama")).strip()
+        if pid and pid not in PROVIDERS:
+            console.print(f"[red]ไม่รู้จัก provider: {pid}[/red]")
+            return None
     if not ensure_key(pid, keys):
         return None
     if not ensure_local_server(pid):
