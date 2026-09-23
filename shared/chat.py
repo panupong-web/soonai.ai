@@ -891,6 +891,7 @@ def handle_command(st, q):
                             "/effort low|medium|high|off เร่ง reasoning โมเดล (เฉพาะค่ายที่รองรับ)\n"
                             "/model เปลี่ยนโมเดล (ในค่ายเดิม)\n"
                             "/provider เปลี่ยนค่าย (เช่น groq / gemini / openrouter) + เลือกโมเดลใหม่\n"
+                            "/connect เชื่อมต่อค่าย (เลือก/เพิ่มค่าย + ใส่ key + ทดสอบจริง)\n"
                             "/pull <ชื่อโมเดล> โหลดโมเดลใหม่มาใช้บนเครื่อง (เช่น /pull qwen3)\n"
                              "/agent เปิด/ปิดโหมดสั่งงานเครื่อง (สร้างไฟล์/โฟลเดอร์/รันคำสั่งได้)\n"
                              "/init ร่าง AGENTS.md ประจำโปรเจกต์ด้วย AI (agent จำเองทุกรอบ)\n"
@@ -924,6 +925,17 @@ def handle_command(st, q):
             st.history = [m for m in st.history if m.get("role") == "system"]
             R.console.print(Panel(f"[bold]{R.PROVIDERS[st.provider]['name']}[/bold] / {st.model}\n"
                                 "[dim]เปลี่ยนค่ายแล้ว ล้างประวัติให้ใหม่[/dim]",
+                                title="SoonAI chat", border_style="cyan"))
+        return True
+    if q.lower() == "/connect" or q.lower().startswith("/connect "):
+        parts = q.split(None, 1)
+        res = R.connect_provider(st.keys, st.cfg,
+                                 parts[1] if len(parts) > 1 else "")
+        if res:
+            st.provider, st.model = res
+            st.history = [m for m in st.history if m.get("role") == "system"]
+            R.console.print(Panel(f"[bold]{R.PROVIDERS[st.provider]['name']}[/bold] / {st.model}\n"
+                                "[dim]เชื่อมต่อแล้ว ล้างประวัติให้ใหม่[/dim]",
                                 title="SoonAI chat", border_style="cyan"))
         return True
     return False

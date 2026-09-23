@@ -6869,9 +6869,37 @@ def cmd_setup(args, keys, cfg):
     console.print(Panel("ตั้งค่า SoonAI ครั้งแรก — เลือกค่าย ใส่ key เลือกโมเดล เสร็จแล้วแชทได้เลย",
                         title="Setup"))
     cmd_providers(args, keys, cfg)
-    provider = Prompt.ask("เลือก provider", default=cfg.get("provider", "ollama")).strip()
-    if provider not in PROVIDERS:
-        console.print(f"[red]ไม่รู้จัก provider: {provider}[/red]")
+    # เลือกค่าย + หัวข้อ ➕ เพิ่มค่ายเอง (เหมือนเมนู /provider) —
+    # fuzzy_pick ใช้ไม่ได้ใน pipe → fallback เป็น Prompt พร้อมคีย์เวิร์ด "add"
+    provider = ""
+    try:
+        while True:
+            fp = fuzzy_pick("เลือก provider:",
+                            [(p, f"{p} — {s['name']}") for p, s in PROVIDERS.items()
+                             if not s.get("tool_only")]
+                            + [(ADD_PROVIDER_CHOICE,
+                                "➕ เพิ่มค่ายเอง — OpenAI-compatible (URL + API key)")])
+            if fp == ADD_PROVIDER_CHOICE:
+                provider = add_custom_provider_flow(keys, cfg) or ""
+            elif fp:
+                provider = fp
+            elif fp == "":
+                console.print("[yellow]ยกเลิก setup[/yellow]")
+                return 1
+            else:
+                provider = Prompt.ask("เลือก provider (พิมพ์ add = เพิ่มค่ายเอง)",
+                                      default=cfg.get("provider", "ollama")).strip()
+                if (provider.lower() in ("add", "เพิ่ม", "เพิ่มค่ายเอง", "+")
+                        and provider not in PROVIDERS):
+                    provider = add_custom_provider_flow(keys, cfg) or ""
+            if not provider:
+                continue        # ยกเลิก/ไม่ผ่านตอนเพิ่มค่าย → ถามใหม่
+            if provider not in PROVIDERS:
+                console.print(f"[red]ไม่รู้จัก provider: {provider}[/red]")
+                return 1
+            break
+    except (EOFError, KeyboardInterrupt):
+        console.print()
         return 1
     ensure_key(provider, keys)
     free_only = Prompt.ask("กรองเฉพาะโมเดลฟรี?", choices=["y", "n"], default="y") == "y"
@@ -7355,13 +7383,14 @@ def ensure_key(provider, keys):
 ADD_PROVIDER_CHOICE = "__add_custom_provider__"
 
 
-def add_custom_provider_flow(keys, cfg):
+def add_custom_provider_flow(keys, cfg, url_prefill=""):
     """เพิ่มค่ายเอง (OpenAI-compatible) ระหว่างเมนูเปลี่ยนค่าย
     ถาม ชื่อ/URL/โมเดล → cmd_provider add (ถาม key แบบซ่อนจอเองเมื่อเป็น tty)
+    url_prefill = ใส่ค่าล่วงหน้าในช่อง URL (เช่น /connect <URL>)
     คืน pid ใหม่ถ้าสำเร็จ / None ถ้ายกเลิกหรือไม่ผ่านตรวจสอบ"""
     try:
         name = Prompt.ask("ชื่อค่ายใหม่ (a-z, 0-9, _, -)", default="").strip().lower()
-        url = Prompt.ask("Base URL (เช่น https://api.example.com/v1)", default="").strip()
+        url = Prompt.ask("Base URL (เช่น https://api.example.com/v1)", default=url_prefill).strip()
         model = Prompt.ask("โมเดลเริ่มต้น", default="").strip()
     except (EOFError, KeyboardInterrupt):
         console.print()
@@ -7410,6 +7439,73 @@ def switch_provider(keys, cfg):
     cfg["provider"] = pid
     cfg["model"] = model
     save_json(CONFIG_FILE, cfg)
+    return pid, model
+
+
+def _connect_ping(pid, model):
+    """ยิง chat สั้น ๆ 1 ครั้งตรงถึงค่าย (ไม่ผ่าน failover/retry — ผลต้องจริงของค่ายนั้น)
+    คืน (True, คำตอบสั้น) หรือ (False, ข้อความ error ที่อ่านออก)"""
+    try:
+        driver = _make_chat_driver(
+            pid, model, [{"role": "user", "content": "พิมพ์คำว่า ok"}],
+            0.0, False, _chat_effort(pid, None), 16, 0)
+        url, headers, payload = driver.spec()
+        r = driver.send(url, headers, payload)
+        status = getattr(r, "status_code", 0)
+        if status != 200:
+            return False, driver.error_message(status, driver.error_body(r))
+        text, _finish = driver.read(r, lambda t: None)
+        return True, (text or "").strip().replace("\n", " ")[:80]
+    except Exception as e:
+        return False, str(e)
+
+
+def connect_provider(keys, cfg, target=""):
+    """/connect — เชื่อมต่อค่าย AI: เลือก/เพิ่มค่าย → key → โมเดล → ทดสอบยิงจริง 1 รอบ
+    เชื่อมผ่าน = ตั้งเป็นค่ายหลัก · ไม่ผ่าน = คืนค่าเดิม (ไม่ทิ้งค่ายพังไว้)
+    target: ว่าง = เมนู (มี ➕ เพิ่มค่ายเอง) · ชื่อค่าย · http(s) URL = เพิ่มค่ายจาก URL
+    คืน (provider, model) ถ้าสำเร็จ / None"""
+    target = str(target or "").strip()
+    prev_p, prev_m = cfg.get("provider"), cfg.get("model")
+    picked = None
+    if target.startswith(("http://", "https://")):
+        pid = add_custom_provider_flow(keys, cfg, url_prefill=target)
+        if not pid:
+            return None
+        model = pick_model(pid, keys)
+        if not model:
+            return None
+        picked = (pid, model)
+    elif target:
+        pid = target.lower()
+        if pid not in PROVIDERS:
+            console.print(f"[red]ไม่รู้จักค่าย: {pid}[/red] — พิมพ์ /connect เฉย ๆ "
+                          "เพื่อเลือกจากเมนู (มี ➕ เพิ่มค่ายเอง)")
+            return None
+        if not ensure_key(pid, keys):
+            return None
+        model = pick_model(pid, keys)
+        if not model:
+            return None
+        picked = (pid, model)
+    else:
+        picked = switch_provider(keys, cfg)  # เมนู + ➕เพิ่มค่ายเอง + key + โมเดล + บันทึกแล้ว
+        if not picked:
+            return None
+    pid, model = picked
+    with console.status(f"กำลังทดสอบการเชื่อมต่อ {pid}/{model} …"):
+        ok, info = _connect_ping(pid, model)
+    if not ok:
+        console.print(f"[red]เชื่อมไม่ผ่าน:[/red] {info}")
+        if cfg.get("provider") != prev_p or cfg.get("model") != prev_m:
+            cfg["provider"], cfg["model"] = prev_p, prev_m
+            save_json(CONFIG_FILE, cfg)
+        console.print("[dim]ยังไม่ตั้งเป็นค่ายหลัก — แก้ key แล้วลอง /connect ใหม่[/dim]")
+        return None
+    cfg["provider"], cfg["model"] = pid, model
+    save_json(CONFIG_FILE, cfg)
+    console.print(f"[green]เชื่อมต่อสำเร็จ ✓ {PROVIDERS[pid]['name']} / {model}[/green]"
+                  + (f"[dim] — ตอบ: {info}[/dim]" if info else ""))
     return pid, model
 
 
