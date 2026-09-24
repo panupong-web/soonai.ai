@@ -629,9 +629,9 @@ def _input_style():
             "input-bar": "bg:#1e1e1e",
             "input-hint": f"fg:{p['faint']} bg:#1e1e1e",
             "completion-menu.completion": f"fg:{p['muted']} bg:#1e1e1e",
-            "completion-menu.completion.current": f"bold {p['text']} bg:#2b2b2b",
+            "completion-menu.completion.current": f"bold #000000 bg:{p['accent']}",
             "completion-menu.meta.completion": f"fg:{p['faint']} bg:#1e1e1e",
-            "completion-menu.meta.completion.current": f"fg:{p['muted']} bg:#2b2b2b",
+            "completion-menu.meta.completion.current": f"bold #000000 bg:{p['accent']}",
             "completion-menu": "bg:#1e1e1e",
         }
     return {
