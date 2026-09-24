@@ -662,8 +662,7 @@ def handle_command(st, q):
                 st.history.insert(0, {"role": "system", "content": st.cfg["system"]})
             st.sid = it["id"]
             R.touch_session(st.sid)
-            _ttl = R.refresh_session_title(st.sid, st.provider, st.model,
-                                            st.history) or it.get("name", "")
+            _ttl = it.get("name", "")
             R.console.print(Panel(f"[bold]{R.PROVIDERS[st.provider]['name']}[/bold] / {st.model}\n"
                                 + (f"[bold]{_ttl}[/bold]\n" if _ttl else "")
                                 + f"[dim]คุยต่อ session {st.sid}[/dim]",
@@ -842,8 +841,7 @@ def handle_command(st, q):
             st.history.insert(0, {"role": "system", "content": st.cfg["system"]})
         st.sid = it["id"]
         R.touch_session(st.sid)
-        _ttl = R.refresh_session_title(st.sid, st.provider, st.model,
-                                       st.history) or it.get("name", "")
+        _ttl = it.get("name", "")
         R.console.print(Panel(f"[bold]{R.PROVIDERS[st.provider]['name']}[/bold] / {st.model}\n"
                             + (f"[bold]{_ttl}[/bold]\n" if _ttl else "")
                             + f"[dim]คุยต่อ session {st.sid}[/dim]",
@@ -1004,8 +1002,7 @@ def cmd_chat(args, keys, cfg):
         st.model = R.ensure_model_valid(st.provider, st.model, st.keys)
         if not st.model:
             return 1
-        _ttl = R.refresh_session_title(st.sid, st.provider, st.model,
-                                       st.history) or it.get("name", "")
+        _ttl = it.get("name", "")
         R.console.print(f"[green]คุยต่อ session {st.sid} ({len([m for m in st.history if m.get('role') == 'user'])} รอบ)[/green]")
         if _ttl:
             R.console.print(f"[dim]หัวข้อ: {_ttl}[/dim]")
@@ -1184,7 +1181,6 @@ def cmd_chat(args, keys, cfg):
                         R.console.print("[dim](ข้ามการตรวจ)[/dim]")
                 st.history = R.auto_compact_history(st.provider, st.model, st.history)
                 st.sid = R.save_session(st.sid or R._session_id(), st.provider, st.model, st.history)
-                R.refresh_session_title_async(st.sid, st.provider, st.model, st.history)
                 st.history = st.history[-21:]
             else:
                 R.console.print(R.nothing_done_reason(msgs))
@@ -1209,7 +1205,6 @@ def cmd_chat(args, keys, cfg):
                     R.console.print("[dim](ข้ามการตรวจ)[/dim]")
             st.history = R.auto_compact_history(st.provider, st.model, st.history)
             st.sid = R.save_session(st.sid or R._session_id(), st.provider, st.model, st.history)
-            R.refresh_session_title_async(st.sid, st.provider, st.model, st.history)
             st.history = st.history[-21:]
         else:
             st.history.pop()

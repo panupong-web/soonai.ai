@@ -5998,7 +5998,6 @@ class _OpenAIChatDriver(_ChatDriver):
         return finish == "length" and round_i < self.max_rounds - 1
 
     def continue_with(self, text):
-        console.print("[dim](ตอบยังไม่จบ — ขอต่อ…)[/dim]")
         self.payload["messages"] = self.payload["messages"] + [
             {"role": "assistant", "content": text},
             {"role": "user", "content": "continue"}]
@@ -6106,7 +6105,6 @@ class _OllamaChatDriver(_ChatDriver):
         return finish == "length" and round_i < self.max_rounds - 1
 
     def continue_with(self, text):
-        console.print("[dim](ตอบยังไม่จบ — ขอต่อ…)[/dim]")
         self.payload["messages"] = self.payload["messages"] + [
             {"role": "assistant", "content": text},
             {"role": "user", "content": "continue"}]
@@ -6515,8 +6513,8 @@ def run_with_spinner(label, fn, *args, **kwargs):
 
 
 def refresh_session_title(sid, provider, model, messages,
-                          label="กำลังตั้งหัวข้อบทสนทนา…"):
-    """สร้างหัวข้อ session จาก AI ถ้ายังไม่มี/ยังมั่ว — เรียกหลัง save/resume
+                          label="กำลังประมวลผล session…"):
+    """สร้างหัวข้อ session จาก AI ถ้ายังไม่มี/ยังมั่ว — ใช้เฉพาะ API รุ่นเก่า
 
     เช็กก่อนแบบ cheap แล้วค่อยเปิดสปินเนอร์ (กันกะพริบฟรีทุกเทิร์น)
     ยังไม่ต้องสร้าง = คืนชื่อเดิมทันที ไม่มี AI call ไม่มีสปินเนอร์"""
