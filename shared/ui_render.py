@@ -650,6 +650,16 @@ def _input_style():
 INPUT_STYLE = _input_style()
 
 
+def _input_rgb_label(frame, width, text="soonai"):
+    """RGB rainbow label under the input box, animated independently."""
+    pad = max(0, (int(width) - len(text)) // 2)
+    out = [("", " " * pad)] if pad else []
+    for i, ch in enumerate(text):
+        hue = (float(frame) * 0.018 + i / max(1, len(text))) % 1.0
+        out.append((rgb_hex(hue), ch))
+    return out
+
+
 def build_input_bar(history=None, status=""):
     """ประกอบแถบพิมพ์กรอบจักรวาลอนิเมชัน (ดาวกะพริบ + ดาวตกวิ่งตามขอบ)
     เมนู / แสดง "เหนือ" แถบพิมพ์ (แทรกในกรอบ) — ไม่ต้องมีจอก็ประกอบได้
@@ -800,11 +810,7 @@ def build_input_bar(history=None, status=""):
     def _label():
         f = _tick()
         w = _cols()
-        t = "soonai"
-        pad = max(0, (w - len(t)) // 2)
-        if not _cosmos_on():
-            return [("", " " * pad + t)]
-        return ([("", " " * pad)] if pad else []) + _cosmos_word(t, f)
+        return _input_rgb_label(f, w)
 
     bar = "class:input-bar"
     mid = VSplit([
