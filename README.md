@@ -61,3 +61,23 @@ On macOS/Linux:
 ```
 
 The installer does not copy secrets or session data from the source tree.
+
+## Project hooks
+
+Optional tool hooks can run before or after a tool action. Create
+`.soonai/hooks.json` in the project root:
+
+```json
+{
+  "before_tool": {
+    "run_tests": "python -m pytest -q"
+  },
+  "after_tool": {
+    "write_file": "git diff --check"
+  }
+}
+```
+
+Hooks are restricted to SoonAI's safe-shell allowlist and have a 30-second
+timeout. A failing `before_tool` hook blocks the tool; a failing `after_tool`
+hook reports an error. Hooks are never copied by the installer.

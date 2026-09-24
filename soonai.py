@@ -3834,6 +3834,9 @@ def _agent_status_failover(driver, r, switches):
 
 # approve + รัน tool + update seen_feeds (ข้าม mcp ซ้ำ/ล้างเมื่อ state เปลี่ยน)
 def _agent_tool_exec(name, fargs, desc, auto_yes, seen_feeds, used):
+    hook_ok, hook_error = _run_project_hook("before_tool", name)
+    if not hook_ok:
+        return False, hook_error, used
     allowed = approve(name, desc, fargs, auto_yes)
     if allowed:
         used += 1
@@ -3845,6 +3848,9 @@ def _agent_tool_exec(name, fargs, desc, auto_yes, seen_feeds, used):
             result = f"(ใช้ผลเดิมของ {desc} — ไม่เรียกซ้ำ)"
         else:
             result = run_tool(name, fargs)
+            after_ok, after_error = _run_project_hook("after_tool", name)
+            if not after_ok:
+                result = after_error
             if (_sig and str(name or "").startswith("mcp__")
                     and not str(result).startswith("ERROR:")):
                 seen_feeds[_sig] = True
@@ -3869,6 +3875,30 @@ def _agent_tool_log(desc, name, result, allowed, fargs, tools_log):
     else:
         tools_log.append((name, "denied", first))
     _record_tools([tools_log[-1]])
+
+
+def _run_project_hook(event, tool):
+    """Run an explicitly configured, safe project hook around a tool action."""
+    if event not in ("before_tool", "after_tool"):
+        return False, "ERROR: unknown project hook"
+    try:
+        path = Path(workspace_root()) / ".soonai" / "hooks.json"
+        if not path.is_file() or path.stat().st_size > 100_000:
+            return True, ""
+        config = json.loads(path.read_text(encoding="utf-8"))
+        command = ((config.get(event) or {}).get(tool)
+                   if isinstance(config, dict) else None)
+        if not command:
+            return True, ""
+        command = str(command).strip()
+        if not _safe_shell_ok(command):
+            return False, f"ERROR: project hook {event}/{tool} ไม่ผ่าน safe-shell"
+        result = run_command_safe(command, timeout=30, cwd=workspace_root(), max_output=1000)
+        if result.get("timed_out") or result.get("code") != 0:
+            return False, f"ERROR: project hook {event}/{tool} failed"
+        return True, ""
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        return False, f"ERROR: อ่าน project hook ไม่ได้: {exc}"
 
 
 def _parse_agent_tool_call(call):
