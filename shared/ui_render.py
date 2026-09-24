@@ -10,7 +10,9 @@ commands) เรียกตัวจัดรูปแบบชุดเดี�
 - ชื่อของโมดูลพี่น้อง (shell/usage/providers) → import โมดูลนั้นตรง ๆ
 """
 import colorsys
+import json
 import os
+import re
 import time
 
 import requests
@@ -238,8 +240,41 @@ def _record_tools(tools):
             else:
                 row = (str(t), "", "")
             R.SESSION_TOOLS.append(row)
+            _audit_tool_event(row)
         if len(R.SESSION_TOOLS) > R.SESSION_TOOLS_MAX:
             del R.SESSION_TOOLS[:-R.SESSION_TOOLS_MAX]
+    except Exception:
+        pass
+
+
+_AUDIT_SECRET_RE = re.compile(
+    r"(?i)(token|password|passwd|pwd|api[_-]?key|secret|bearer)\s*[:=]\s*\S+"
+)
+
+
+def _audit_tool_event(tool):
+    """Append a small redacted tool event without storing payloads or file contents."""
+    try:
+        row = tool if isinstance(tool, (list, tuple)) else (str(tool), "", "")
+        payload = {
+            "ts": time.time(),
+            "tool": str(row[0])[:120],
+            "status": str(row[1])[:30] if len(row) > 1 else "",
+            "result": _AUDIT_SECRET_RE.sub(r"\1=***", str(row[2])[:300])
+            if len(row) > 2 else "",
+        }
+        data_dir = getattr(R, "DATA_DIR", None)
+        if not data_dir:
+            return
+        path = os.path.join(str(data_dir), "audit.log")
+        os.makedirs(str(data_dir), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        if os.path.getsize(path) > 1_000_000:
+            with open(path, "rb") as handle:
+                tail = handle.read()[-500_000:]
+            with open(path, "wb") as handle:
+                handle.write(tail)
     except Exception:
         pass
 
