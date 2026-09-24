@@ -72,6 +72,7 @@ def _framed_input(st):
         style=Style.from_dict(R.INPUT_STYLE),
         full_screen=False,
         erase_when_done=True,
+        mouse_support=True,
     )
     return app.run()
 def read_input(st):
@@ -1065,7 +1066,8 @@ def cmd_chat(args, keys, cfg):
 
             st.ptk_session = PromptSession(history=InMemoryHistory(),
                                         completer=_SlashCompleter(),
-                                        style=Style.from_dict({"": "#00e5ff bold"}))
+                                        style=Style.from_dict({"": "#00e5ff bold"}),
+                                        mouse_support=True)
         except Exception:
             st.ptk_session = None
     st.ptk_history = None
