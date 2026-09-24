@@ -311,7 +311,9 @@ def _choose_theme_dialog(title, choices, labels):
                 pass
         return _handler
 
-    buttons = [Button(labels[name], handler=_pick(name)) for name in choices]
+    buttons = [Button(labels[name], handler=_pick(name), width=48,
+                      left_symbol="", right_symbol="")
+               for name in choices]
     dialog = Dialog(title=title,
                     body=HSplit(buttons, padding=1),
                     modal=True)
