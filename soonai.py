@@ -1968,15 +1968,15 @@ def run_tool(name, args):
 
 
 # ── ร่างกายของแต่ละ tool: ย้ายมาจากใน run_tool เดิมทั้งก้อน — เนื้อหาไม่เปลี่ยน แค่แยกฟังก์ชันให้อ่านง่าย ──
-def _mutation_path_error(path):
-    """Reject file mutations outside the active workspace."""
+def _workspace_path_error(path):
+    """Reject agent file access outside the active workspace."""
     if outside_workspace(path):
         return "ERROR: path outside workspace"
     return ""
 
 
 def _tool_make_dir(args):
-    error = _mutation_path_error(args.get("path", ""))
+    error = _workspace_path_error(args.get("path", ""))
     if error:
         return error
     p = _resolve_tool_path(args["path"])
@@ -1985,7 +1985,7 @@ def _tool_make_dir(args):
 
 
 def _tool_write_file(args):
-    error = _mutation_path_error(args.get("path", ""))
+    error = _workspace_path_error(args.get("path", ""))
     if error:
         return error
     p = _resolve_tool_path(args["path"])
@@ -1997,6 +1997,9 @@ def _tool_write_file(args):
 
 
 def _tool_read_file(args):
+    error = _workspace_path_error(args.get("path", ""))
+    if error:
+        return error
     p = _resolve_tool_path(args["path"])
     t = p.read_text(encoding="utf-8", errors="replace")
     try:
@@ -2008,6 +2011,9 @@ def _tool_read_file(args):
 
 
 def _tool_list_dir(args):
+    error = _workspace_path_error(args.get("path") or ".")
+    if error:
+        return error
     p = _resolve_tool_path(args.get("path") or ".")
     items = sorted(x.name + ("/" if x.is_dir() else "") for x in p.iterdir())
     return "\n".join(items) or "(ว่าง)"
@@ -2053,7 +2059,7 @@ def _tool_run_tests(args):
 
 
 def _tool_edit_file(args):
-    error = _mutation_path_error(args.get("path", ""))
+    error = _workspace_path_error(args.get("path", ""))
     if error:
         return error
     p = _resolve_tool_path(args["path"])
