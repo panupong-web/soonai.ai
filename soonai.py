@@ -2971,6 +2971,32 @@ def _is_model_not_found(status, body_text):
                                    "unknown model", "does not exist", "not a valid model"))
 
 
+def _model_replacement_candidates(provider, model, body_text):
+    """คืน slug ที่ endpoint แนะนำก่อนเริ่ม failover ไปโมเดลอื่น"""
+    text = body_text if isinstance(body_text, str) else str(body_text or "")
+    candidates = []
+    # OpenRouter ใช้ :free เป็น routing variant; เมื่อ variant ถูกปิด
+    # paid slug ของโมเดลเดียวกันมักยังใช้งานได้
+    if provider == "openrouter" and str(model).endswith(":free"):
+        candidates.append(str(model)[:-5])
+    # รองรับข้อความจาก gateway ที่บอก slug ใหม่โดยตรง
+    patterns = (
+        r"use\s+(?:this\s+)?(?:model\s+)?(?:slug\s+)?(?:instead\s*[:\-]?\s*)"
+        r"([A-Za-z0-9][A-Za-z0-9._:/-]+)",
+        r"(?:use|try)\s+(?:the\s+)?(?:paid\s+)?(?:version|model)\s+"
+        r"(?:with\s+)?(?:slug\s+)?([A-Za-z0-9][A-Za-z0-9._:/-]+)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            candidates.append(match.group(1).rstrip(".,;)"))
+    result = []
+    for candidate in candidates:
+        if candidate and candidate != model and candidate not in result:
+            result.append(candidate)
+    return result
+
+
 def _should_try_provider(status, body_text):
     """เคสที่ย้ายข้ามค่ายแล้วมีลุ้น: โควต้าตาย / ล่มชั่วคราว / key ใช้ไม่ได้ / endpoint หาย
     400 (request ผิด) ไม่ย้าย — เปลี่ยนค่ายก็พังเหมือนเดิม
@@ -5924,6 +5950,24 @@ def send_messages(provider, model, messages, temperature, stream=True, on_chunk=
             r = driver.send(url, headers, payload)
             if r.status_code != 200:
                 body = driver.error_body(r)
+                replacements = _model_replacement_candidates(
+                    driver.provider_key, driver.model, body)
+                if replacements:
+                    global LAST_MODEL_SWITCH
+                    old_model = driver.model
+                    replacement = replacements[0]
+                    driver.set_model(replacement)
+                    switches += 1
+                    LAST_MODEL_SWITCH = {
+                        "provider": driver.provider_key,
+                        "from": old_model,
+                        "to": replacement,
+                        "ts": time.time(),
+                    }
+                    console.print(
+                        f"[dim](โมเดล {short_model(old_model)} ใช้ไม่ได้ — "
+                        f"ลอง slug {short_model(replacement)} แทน)[/dim]")
+                    continue
                 if driver.supports_switch and _quota_dead(r.status_code, body):
                     old_name = PROVIDERS[driver.provider_key]["name"]
                     np, nm = _failover_provider(driver.provider_key, driver.model)
