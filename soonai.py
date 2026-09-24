@@ -71,6 +71,7 @@ try:
     from project import _expand_known_folders, _resolve_tool_path, SNAP_IGNORE, project_snapshot, MEMORY_FILENAMES, find_agents_files, project_memory, _attach_project_memory, INIT_HINT_FILES, collect_init_context, HEAVY_DIRS, IGNORE_FILES, MAX_SCAN_FILES, _ignore_patterns, _ignored_rel, iter_project_files  # noqa: F401
 except Exception:
     _project_mod = None
+
 try:
     import usage as _usage_mod
     from usage import EFFORT_BUDGET, est_tokens, messages_tokens, usage_reset, _pricing_cached, estimate_cost, usage_note, _track_usage, usage_line, context_budget, fit_messages  # noqa: F401
@@ -1967,13 +1968,26 @@ def run_tool(name, args):
 
 
 # ── ร่างกายของแต่ละ tool: ย้ายมาจากใน run_tool เดิมทั้งก้อน — เนื้อหาไม่เปลี่ยน แค่แยกฟังก์ชันให้อ่านง่าย ──
+def _mutation_path_error(path):
+    """Reject file mutations outside the active workspace."""
+    if outside_workspace(path):
+        return "ERROR: path outside workspace"
+    return ""
+
+
 def _tool_make_dir(args):
+    error = _mutation_path_error(args.get("path", ""))
+    if error:
+        return error
     p = _resolve_tool_path(args["path"])
     p.mkdir(parents=True, exist_ok=True)
     return f"OK: สร้างโฟลเดอร์ {p}"
 
 
 def _tool_write_file(args):
+    error = _mutation_path_error(args.get("path", ""))
+    if error:
+        return error
     p = _resolve_tool_path(args["path"])
     checkpoint_file(p, "write_file")
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -2039,6 +2053,9 @@ def _tool_run_tests(args):
 
 
 def _tool_edit_file(args):
+    error = _mutation_path_error(args.get("path", ""))
+    if error:
+        return error
     p = _resolve_tool_path(args["path"])
     o, n = args.get("old_string", ""), args.get("new_string", "")
     if not o:
