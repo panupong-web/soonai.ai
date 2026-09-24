@@ -773,6 +773,17 @@ def build_input_bar(history=None, status=""):
                 pass
         return state["frame"]
 
+    def _rgb_label_tick():
+        """เริ่มลูปสีของป้ายชื่อแม้กรอบจักรวาลจะอยู่โหมดนิ่ง"""
+        if not state["anim_on"]:
+            state["anim_on"] = True
+            try:
+                from prompt_toolkit.application.current import get_app
+                get_app().create_background_task(_anim_loop())
+            except Exception:
+                pass
+        return state["frame"]
+
     def _top():
         f = _tick()
         st = status
@@ -808,7 +819,7 @@ def build_input_bar(history=None, status=""):
                 + [(_cosmos_nebula(n + 1, f), "┘")])
 
     def _label():
-        f = _tick()
+        f = _rgb_label_tick()
         w = _cols()
         return _input_rgb_label(f, w)
 
