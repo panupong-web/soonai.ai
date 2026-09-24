@@ -1,0 +1,51 @@
+usage: soonai [-h] [--version] [--provider PROVIDER] [--model MODEL]
+              [--temperature TEMPERATURE] [--free-only] [--search SEARCH]
+              [--agent] [--yes] [--no-boot] [--no-banner]
+              [--effort {low,medium,high}] [--resume [RESUME]]
+              [--max-steps MAX_STEPS]
+              {setup,ask,exec,providers,provider,models,key,use,pull,auto,sessions,mcp,skills,status,demo,update,git,commit,undo,test} ...
+
+SoonAI CLI — แชทบอททุกค่ายจาก cmd/PowerShell
+
+positional arguments:
+  {setup,ask,exec,providers,provider,models,key,use,pull,auto,sessions,mcp,skills,status,demo,update,git,commit,undo,test}
+    setup               ตัวช่วยตั้งค่าครั้งแรก (แนะนำ)
+    ask                 ถามครั้งเดียวแล้วจบ
+    exec                โหมด headless สำหรับสคริปต์/CI (ทำงานเดียวแล้วจบ)
+    providers           ดูรายชื่อผู้ให้บริการ
+    provider            เพิ่ม/ลบ provider แบบ OpenAI-compatible ด้วย URL + API
+                        key
+    models              ดูโมเดลล่าสุดของค่ายนั้น
+    key                 จัดการ API keys
+    use                 ตั้งค่าเริ่มต้น
+    pull                ดาวน์โหลดโมเดล Ollama มาใช้บนเครื่อง (ฟรี)
+    auto                เปิด/ปิดอนุมัติอัตโนมัติ (จำถาวร ไม่ต้องกด y)
+    sessions            ดู/ลบ บทสนทนาที่บันทึกไว้
+    mcp                 ต่อ MCP servers (tools เสริมให้ agent)
+    skills              จัดการ skills เสริมให้ agent (มีชุดในตัวติดตั้งได้เลย)
+    status              เช็คสถานะ local + keys
+    demo                โชว์กรอบจักรวาลอนิเมชัน (ไม่ใช้เน็ต)
+    update              เช็ค + อัปเดตเป็นเวอร์ชันล่าสุด
+    git                 สถานะ/ประวัติ git
+    commit              ร่างข้อความ + commit (ไม่ push)
+    undo                ย้อนกลับ commit ล่าสุด + คืน checkpoint
+    test                รันเทสต์อัตโนมัติ
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
+  --provider PROVIDER   ค่าย AI สำหรับห้องแชท
+  --model MODEL         โมเดลสำหรับห้องแชท
+  --temperature TEMPERATURE
+                        อุณหภูมิคำตอบ (ว่าง = ตาม config)
+  --free-only           ห้องแชทใช้เฉพาะโมเดลฟรี
+  --search SEARCH       ค้นชื่อโมเดลห้องแชท
+  --agent               เปิดโหมดสั่งงานเครื่องตั้งแต่เริ่ม
+  --yes                 อนุญาตทุก action โดยไม่ถาม (ระวัง)
+  --no-boot             ข้ามจอต้อนรับ
+  --no-banner           ซ่อนโลโก้ SOONAI ด้านบน
+  --effort {low,medium,high}
+                        โหมด reasoning ห้องแชท (เฉพาะค่ายที่รองรับ)
+  --resume [RESUME]     คุยต่อ session เดิม (ลำดับ/id/ว่าง=ล่าสุด)
+  --max-steps MAX_STEPS
+                        เพดานก้าวของ agent (0 = ไม่จำกัด · ค่าเริ่มต้น 40)

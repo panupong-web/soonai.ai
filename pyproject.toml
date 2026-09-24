@@ -1,0 +1,45 @@
+# การตั้งค่าของ **เครื่องมือพัฒนา** (pytest + linter) ของโปรเจคนี้
+#
+# โปรเจคนี้ไม่ใช่แพ็กเกจที่ติดตั้งผ่าน pip — ไฟล์นี้มีไว้ให้เครื่องมืออ่านค่าอย่างเดียว
+# (ไม่มีการประกาศ build-system/project) ถ้าในอนาคตทำเป็นแพ็กเกจ ค่อยเพิ่มส่วนนั้น
+#
+# ใช้งานในเครื่อง:
+#   python -m pip install -r requirements-dev.txt
+#   python -m pytest        # รันเทสต์ทั้งชุด
+#   python -m ruff check .  # lint
+# บน CI: ดู .github/workflows/tests.yml (รัน lint + depgraph gate + เทสต์)
+
+[tool.pytest.ini_options]
+# เทสต์ทุกไฟล์เป็น "standalone script" — รันโค้ดระดับโมดูลแล้ว sys.exit() เอง
+# conftest.py จึงสั่ง pytest อย่า import ตอน collect แล้วให้ standalone_suite_test.py
+# รันแต่ละไฟล์เป็น subprocess ขนานกัน (เหตุผลเต็มอยู่ใน conftest.py)
+python_files = ["test_*.py", "*_test.py"]      # *_test.py = standalone_suite_test.py
+testpaths = ["."]
+addopts = "-q -p no:cacheprovider"
+
+[tool.ruff]
+target-version = "py312"       # 3.12 คือรุ่นต่ำสุดที่ parse โค้ดนี้ได้ (depgraph.py ใช้ PEP 701 — เครื่องหมายคำพูดซ้อนใน f-string)
+                              # CI รัน 3.14 · ตั้ง target ต่ำกว่าเพื่อไม่ให้เครื่องมือแนะนำ syntax ที่ยังไม่ปลอดภัย
+line-length = 100              # ใช้กับ `ruff format` ในอนาคต (ไม่ได้บังคับ E501 — โค้ดเดิมมีบรรทัดยาวเรื่องข้อความ UI)
+exclude = [
+    ".benchmarks",
+    ".freebuff",
+    ".linttools",
+    ".pytest_cache",
+    "__pycache__",
+    "golden",
+    "sessions",
+    "shared/skills.off",       # skill ที่ปิดไว้ (ไม่ได้โหลดตอนรัน)
+]
+
+[tool.ruff.lint]
+# ชุดที่เลือก = pycodestyle-core + pyflakes + warnings
+#   E4x/E7x ระเบียบพื้นฐาน (import/บรรทัด/;·ชื่อกำกวม) · E9x syntax
+#   F       ตัวแปร/ชื่อ import ที่ไม่ได้ใช้ · ชื่อซ้ำ/undefined · f-string ผิดรูป
+#   W       ช่องว่าง/escape ที่ผิด
+# โค้ดทั้งโปรเจคผ่านชุดนี้แล้ว (0 error) จึงใช้เป็นด่านกันของใหม่ใน CI ได้ทันที
+#
+# ขั้นถัดไปที่ล็อกไว้ตั้งใจ (ยังไม่เลือก เพราะต้องแก้โค้ดเดิมจำนวนมาก):
+#   I (isort) ~27 จุด · UP (pyupgrade) ~43 · RUF ~63 · SIM ~80 · B (bugbear) ~21
+# รวมแล้วควรยกโมดูลทีละตัวพร้อมเทสต์ ไม่ควรเปิดรวดเดียวทั้งโปรเจค
+select = ["E4", "E7", "E9", "F", "W"]

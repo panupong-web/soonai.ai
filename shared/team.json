@@ -1,0 +1,16 @@
+{
+  "staff": [
+    {
+      "name": "หัวหน้า",
+      "provider": "openrouter",
+      "model": "cohere/north-mini-code:free",
+      "role": "หัวหน้าที่คอยออกคำสั่ง"
+    },
+    {
+      "name": "programmer",
+      "provider": "openrouter",
+      "model": "cohere/north-mini-code:free",
+      "role": "นักเขียนโค้ด"
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+"""SoonAI applications."""

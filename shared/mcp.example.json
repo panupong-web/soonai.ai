@@ -1,0 +1,19 @@
+{
+  "servers": {
+    "fs": {
+      "command": "node",
+      "args": [
+        "C:/Users/<ชื่อผู้ใช้>/AppData/Roaming/npm/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js",
+        "${cwd}",
+        "C:/Users/<ชื่อผู้ใช้>/Desktop/โฟลเดอร์ที่อนุญาต"
+      ],
+      "env": {},
+      "enabled": true
+    },
+    "my-remote": {
+      "url": "https://example.com/mcp",
+      "headers": {"Authorization": "Bearer ใส่-token-ที่นี่"},
+      "enabled": false
+    }
+  }
+}

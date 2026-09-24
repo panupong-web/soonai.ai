@@ -1,0 +1,6 @@
+# SoonAI CLI - dependencies (pinned from working env)
+requests==2.34.2
+rich==15.0.0
+python-dotenv==1.2.3
+prompt_toolkit==3.0.53
+InquirerPy==0.3.4
