@@ -26,6 +26,48 @@ PALETTE = {
     "code":    "#c9d1d9",
 }
 
+THEMES = {
+    "luxe": dict(PALETTE),
+    "classic": {
+        **PALETTE,
+        "accent": "#00e5ff",
+        "accent2": "#ff2fd6",
+        "muted": "#b8b8b8",
+        "faint": "#666666",
+    },
+    "aurora": {
+        **PALETTE,
+        "accent": "#72f1b8",
+        "accent2": "#7aa2f7",
+        "muted": "#a6c8b6",
+        "faint": "#536b61",
+    },
+    "sunset": {
+        **PALETTE,
+        "accent": "#ff9e64",
+        "accent2": "#f7768e",
+        "muted": "#d8b08c",
+        "faint": "#755c4c",
+    },
+}
+
+
+def theme_names():
+    return tuple(THEMES)
+
+
+def palette_for(name):
+    return dict(THEMES.get(str(name or "").strip().lower(), THEMES["luxe"]))
+
+
+def apply_theme(name):
+    selected = str(name or "").strip().lower()
+    if selected not in THEMES:
+        return ""
+    PALETTE.clear()
+    PALETTE.update(THEMES[selected])
+    return selected
+
 # ── glyph ─────────────────────────────────────────────────────────────────
 GLYPH = {"ok": "✓", "err": "✗", "warn": "!", "bullet": "·", "arrow": "→",
          "prompt": "❯", "dot": "•", "rule": "─"}
@@ -45,7 +87,7 @@ def glyph(name, fallback="·"):
     return GLYPH.get(name, fallback)
 
 
-def rich_theme(classic=False):
+def rich_theme(classic=False, palette=None):
     """สร้าง rich.theme.Theme — โทน luxe (ดีฟอลต์) หรือ classic (นีออนเดิม)
 
     remap ชื่อสีพื้นฐานเพื่อให้ทุก `[cyan]`/`[magenta]`/... ทั้งโปรแกรม
@@ -54,26 +96,29 @@ def rich_theme(classic=False):
     from rich.theme import Theme
     if classic:
         return Theme({})
+    p = palette or PALETTE
     t = {}
-    t["cyan"] = PALETTE["accent"]
-    t["bright_cyan"] = PALETTE["accent"]
-    t["blue"] = PALETTE["accent"]
-    t["bright_blue"] = PALETTE["accent"]
-    t["magenta"] = PALETTE["accent2"]
-    t["bright_magenta"] = PALETTE["accent2"]
-    t["green"] = PALETTE["ok"]
-    t["bright_green"] = PALETTE["ok"]
-    t["yellow"] = PALETTE["warn"]
-    t["bright_yellow"] = PALETTE["warn"]
-    t["red"] = PALETTE["err"]
-    t["bright_red"] = PALETTE["err"]
+    t["cyan"] = p["accent"]
+    t["bright_cyan"] = p["accent"]
+    t["blue"] = p["accent"]
+    t["bright_blue"] = p["accent"]
+    t["magenta"] = p["accent2"]
+    t["bright_magenta"] = p["accent2"]
+    t["green"] = p["ok"]
+    t["bright_green"] = p["ok"]
+    t["yellow"] = p["warn"]
+    t["bright_yellow"] = p["warn"]
+    t["red"] = p["err"]
+    t["bright_red"] = p["err"]
     t["dim"] = "grey54"
     return Theme(t)
 
 
 def console_theme(theme_name="luxe"):
     """Theme ตามชื่อที่ตั้งใน config (ui.theme)"""
-    return rich_theme(classic=(str(theme_name or "luxe").lower() == "classic"))
+    selected = apply_theme(theme_name) or "luxe"
+    return rich_theme(palette=PALETTE if selected != "classic" else None,
+                      classic=False if selected != "classic" else True)
 
 
 def style(name):

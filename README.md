@@ -81,3 +81,14 @@ Optional tool hooks can run before or after a tool action. Create
 Hooks are restricted to SoonAI's safe-shell allowlist and have a 30-second
 timeout. A failing `before_tool` hook blocks the tool; a failing `after_tool`
 hook reports an error. Hooks are never copied by the installer.
+# ธีม UI
+
+เมื่อเปิด SoonAI ครั้งแรกใน terminal แบบโต้ตอบ โปรแกรมจะแสดงหน้าต่างให้เลือกธีม
+และบันทึกไว้ใน config จึงไม่ถามซ้ำในครั้งถัดไป:
+
+- `luxe` — เรียบหรู ฟ้าเทา
+- `aurora` — เขียวมิ้นต์/น้ำเงิน
+- `sunset` — ส้มอุ่น/ชมพู
+- `classic` — นีออนฟ้า/ชมพู
+
+เปลี่ยนธีมภายหลังได้ด้วยคำสั่ง `/theme` หรือระบุชื่อโดยตรง เช่น `/theme aurora`

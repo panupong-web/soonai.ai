@@ -249,9 +249,12 @@ def _apply_ui_theme(name):
     คืนชื่อธีมที่ใช้ หรือ '' ถ้าไม่ถูกต้อง"""
     global console
     name = str(name or "").strip().lower()
-    if name not in ("luxe", "classic", "เรียบหรู", "นีออน"):
+    if name not in ("luxe", "classic", "aurora", "sunset", "เรียบหรู", "นีออน"):
         return ""
-    name = "classic" if name in ("classic", "นีออน") else "luxe"
+    if name in ("เรียบหรู",):
+        name = "luxe"
+    elif name in ("นีออน",):
+        name = "classic"
     try:
         cfg = load_config()
         cfg.setdefault("ui", {})["theme"] = name
@@ -259,11 +262,45 @@ def _apply_ui_theme(name):
     except Exception:
         pass
     try:
+        _UI.apply_theme(name)
         console = Console(legacy_windows=False,
                           theme=(_UI.console_theme(name) if _UI_OK else None))
+        if _ui_render_mod is not None:
+            _ui_render_mod.INPUT_STYLE = _ui_render_mod._input_style()
+            globals()["INPUT_STYLE"] = _ui_render_mod.INPUT_STYLE
     except Exception:
         pass
     return name
+
+
+def _theme_needs_onboarding(cfg):
+    theme = (cfg.get("ui") or {}).get("theme") if isinstance(cfg, dict) else None
+    return str(theme or "").strip().lower() not in (
+        "luxe", "classic", "aurora", "sunset")
+
+
+def choose_ui_theme(initial=False):
+    """เลือกธีมผ่าน prompt ครั้งแรกหรือเมื่อเรียก /theme"""
+    choices = ["luxe", "aurora", "sunset", "classic"]
+    labels = {
+        "luxe": "Luxe — เรียบหรู ฟ้าเทา",
+        "aurora": "Aurora — เขียวมิ้นต์/น้ำเงิน",
+        "sunset": "Sunset — ส้มอุ่น/ชมพู",
+        "classic": "Classic — นีออนฟ้า/ชมพู",
+    }
+    if not sys.stdin.isatty():
+        current = _ui_theme_name()
+        return _apply_ui_theme("luxe" if current != "luxe" else "classic")
+    title = "เลือกธีม SoonAI ครั้งแรก" if initial else "เลือกธีม SoonAI"
+    console.print(Panel("\n".join(f"{i}. {labels[n]}" for i, n in enumerate(choices, 1)),
+                        title=title, border_style="cyan"))
+    try:
+        selected = Prompt.ask("ธีม", choices=choices, default=_ui_theme_name()
+                              if _ui_theme_name() in choices else "luxe")
+    except (EOFError, KeyboardInterrupt):
+        console.print()
+        return ""
+    return _apply_ui_theme(selected)
 
 
 def _computer_mod():

@@ -572,11 +572,11 @@ def handle_command(st, q):
         parts = q.split(None, 1)
         arg = parts[1].strip().lower() if len(parts) > 1 else ""
         if not arg:
-            cur = R._ui_theme_name()
-            arg = "classic" if cur == "luxe" else "luxe"
-        picked = R._apply_ui_theme(arg)
+            picked = R.choose_ui_theme()
+        else:
+            picked = R._apply_ui_theme(arg)
         if not picked:
-            R.console.print("[yellow]ใช้: /theme luxe|classic[/yellow]")
+            R.console.print("[yellow]ใช้: /theme luxe|aurora|sunset|classic[/yellow]")
         else:
             R._COSMOS_MODE["on"] = None   # ให้ค่า animation อ่านใหม่ตาม config
             R.console.print(f"[green]ธีม UI = {picked}[/green]"
@@ -1029,6 +1029,9 @@ def cmd_chat(args, keys, cfg):
         st.effort = ""
     if not getattr(st.args, "no_boot", False):
         R.boot_sequence(st.keys, st.cfg, st.provider, st.model)
+    if sys.stdin.isatty() and R._theme_needs_onboarding(st.cfg):
+        if R.choose_ui_theme(initial=True):
+            st.cfg = R.load_config()
     if not getattr(st.args, "no_banner", False) and st.cfg.get("show_banner", True):
         R.show_banner(R.PROVIDERS[st.provider]['name'], st.model)
     auto_tag = " · [yellow]AUTO[/yellow]" if st.auto_yes else ""
