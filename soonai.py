@@ -376,7 +376,13 @@ LEGACY_QUALITY_SYSTEM = ("คุณคือผู้ช่วย AI ภาค�
                   "เขียนโค้ดได้ทุกภาษาบนโลกไม่จำกัด ถ้าผู้ใช้ไม่ระบุภาษาให้เลือกภาษาที่เหมาะกับงานที่สุด "
                   "สรุปจับประเด็นหลักก่อนเสมอแล้วค่อยลงรายละเอียด")  # ค่า default เก่าที่เคยเซฟลง config (ใช้ตรวจ migration)
 
-QUALITY_SYSTEM = LEGACY_QUALITY_SYSTEM + " " + CLARIFY_RULES
+RESPONSE_STYLE_RULES = (
+    "สไตล์การตอบ: ตอบคำตอบสำคัญก่อนทันที ไม่เกริ่นนำยาว ไม่ทวนคำถาม "
+    "ใช้เฉพาะรายละเอียดที่ช่วยให้ผู้ใช้ทำงานต่อได้ ตัดคำเตือนเฉพาะที่จำเป็นต่อความถูกต้องหรือความปลอดภัย "
+    "ถ้าเป็นงานแก้ปัญหาให้บอกสิ่งที่ทำหรือขั้นตอนถัดไปก่อนคำอธิบาย "
+    "ใช้หัวข้อและรายการเท่าที่จำเป็น หลีกเลี่ยงคำลงท้ายซ้ำและสรุปซ้ำ")
+
+QUALITY_SYSTEM = LEGACY_QUALITY_SYSTEM + " " + RESPONSE_STYLE_RULES + " " + CLARIFY_RULES
 AGENT_SYSTEM = ("คุณคือ coding agent สั่งงานเครื่องของผู้ใช้ได้ด้วย tools: "
                 "glob/grep/read_file (สำรวจโค้ด) + make_dir/write_file/edit_file (สร้าง/แก้) "
                 "+ list_dir/run_cmd (ตรวจ/รัน) "
@@ -400,7 +406,7 @@ AGENT_SYSTEM = ("คุณคือ coding agent สั่งงานเคร�
                  "ขอบเขตปลอดภัย: ทำงานในโฟลเดอร์โปรเจกต์ปัจจุบันเป็นหลัก "
                  "ไฟล์นอกโฟลเดอร์ต้องขออนุญาตก่อนเสมอ "
                  "ห้ามรันคำสั่งทำลายระบบ (ลบทั้งไดรฟ์/ฟอร์แมต/fork bomb/payload เข้ารหัส) "
-                 + CLARIFY_RULES)
+                 + RESPONSE_STYLE_RULES + " " + CLARIFY_RULES)
 
 # ระบบเลือกภาษาโค้ดอัตโนมัติ: เขียนได้ทุกภาษาบนโลก ไม่จำกัด
 # (งาน, ภาษาแนะนำ, นามสกุล, วิธีรัน) — agent เลือกตามงานเมื่อผู้ใช้ไม่ระบุ
@@ -1571,13 +1577,18 @@ def ensure_clarify_rules(messages):
         if not messages or messages[0].get("role") != "system":
             return messages
         content = messages[0].get("content") or ""
-        if CLARIFY_MARKER in content:
-            return messages
         if LEGACY_QUALITY_SYSTEM[:40] not in content:
             # ไม่ใช่ system prompt ของแชท (aux) หรือเป็นค่าที่ผู้ใช้เขียนเอง → เคารพของเดิม
             return messages
-        messages[0] = {"role": "system", "content": content + " " + CLARIFY_RULES}
-        CLARIFY_GUARD["fixed"] = int(CLARIFY_GUARD.get("fixed", 0)) + 1
+        additions = []
+        if RESPONSE_STYLE_RULES not in content:
+            additions.append(RESPONSE_STYLE_RULES)
+        if CLARIFY_MARKER not in content:
+            additions.append(CLARIFY_RULES)
+        if additions:
+            messages[0] = {"role": "system",
+                           "content": content + " " + " ".join(additions)}
+            CLARIFY_GUARD["fixed"] = int(CLARIFY_GUARD.get("fixed", 0)) + 1
     except Exception:
         pass
     return messages
@@ -4649,12 +4660,22 @@ def load_config():
             save_json(CONFIG_FILE, cfg)
         except Exception:
             pass
-    # ต่อกฎจัดการข้อความกำกวมเข้า system prompt เมื่อยังไม่มี (นับ marker ใน CLARIFY_RULES)
-    # ครอบทั้ง default เก่าที่เคยเซฟค้างและค่าที่ผู้ใช้เขียนเอง — ต่อท้ายไม่ทับข้อความเดิม ทำครั้งเดียว
-    elif CLARIFY_MARKER not in str(cfg.get("system")):
-        cfg["system"] = str(cfg["system"]).rstrip() + " " + CLARIFY_RULES
+    # migrate default เก่าแทนที่ด้วยกฎคุณภาพล่าสุด; custom prompt จะถูกต่อท้ายโดยไม่ทับของเดิม
+    else:
+        current_system = str(cfg["system"]).strip()
+        if current_system == LEGACY_QUALITY_SYSTEM:
+            cfg["system"] = QUALITY_SYSTEM
+        else:
+            additions = []
+            if RESPONSE_STYLE_RULES not in current_system:
+                additions.append(RESPONSE_STYLE_RULES)
+            if CLARIFY_MARKER not in current_system:
+                additions.append(CLARIFY_RULES)
+            if additions:
+                cfg["system"] = current_system + " " + " ".join(additions)
         try:
-            save_json(CONFIG_FILE, cfg)
+            if cfg["system"] != current_system:
+                save_json(CONFIG_FILE, cfg)
         except Exception:
             pass
     return cfg
