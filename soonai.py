@@ -3696,14 +3696,15 @@ def _agent_loop(driver, messages, auto_yes=False, on_text=None, max_steps=None,
             messages.append({"role": "assistant", "content": content})
         text_results = []
         for c in calls:
-            fn = c.get("function") or {}
-            name = fn.get("name", "")
-            try:
-                fargs = json.loads(fn.get("arguments") or "{}")
-            except Exception:
-                fargs = {}
-            desc = describe_call(name, fargs if isinstance(fargs, dict) else {})
-            fargs = fargs if isinstance(fargs, dict) else {}
+            parsed, value = _parse_agent_tool_call(c)
+            if not parsed:
+                result = value
+                messages.append({"role": "tool", "tool_call_id": c.get("id"),
+                                 "content": result})
+                _agent_tool_log("tool arguments", "invalid", result, False, {}, tools_log)
+                continue
+            name, fargs = value
+            desc = describe_call(name, fargs)
             allowed, result, used = _agent_tool_exec(name, fargs, desc, auto_yes,
                                                      seen_feeds, used)
             _agent_tool_log(desc, name, result, allowed, fargs, tools_log)
@@ -3868,6 +3869,23 @@ def _agent_tool_log(desc, name, result, allowed, fargs, tools_log):
     else:
         tools_log.append((name, "denied", first))
     _record_tools([tools_log[-1]])
+
+
+def _parse_agent_tool_call(call):
+    """Parse one model tool call without silently converting invalid JSON to {}."""
+    fn = call.get("function") if isinstance(call, dict) else None
+    fn = fn if isinstance(fn, dict) else {}
+    name = str(fn.get("name") or "").strip()
+    raw = fn.get("arguments")
+    if not name:
+        return False, "ERROR: tool call ไม่มีชื่อ tool"
+    try:
+        args = json.loads(raw or "{}")
+    except (TypeError, ValueError) as exc:
+        return False, f"ERROR: arguments ของ tool {name} ไม่ใช่ JSON ที่ถูกต้อง: {exc}"
+    if not isinstance(args, dict):
+        return False, f"ERROR: arguments ของ tool {name} ต้องเป็น JSON object"
+    return True, (name, args)
 
 
 # นับ tool ที่ไม่รู้จักเรียกซ้ำ -> คืน (repeat_err, ต้องหยุดลูปไหม)
