@@ -279,6 +279,10 @@ def _theme_needs_onboarding(cfg):
         "luxe", "classic", "aurora", "sunset")
 
 
+def _normalize_theme_choice(value):
+    return str(value or "").strip().lower()
+
+
 def choose_ui_theme(initial=False):
     """เลือกธีมผ่าน prompt ครั้งแรกหรือเมื่อเรียก /theme"""
     choices = ["luxe", "aurora", "sunset", "classic"]
@@ -296,11 +300,12 @@ def choose_ui_theme(initial=False):
                         title=title, border_style="cyan"))
     try:
         selected = Prompt.ask("ธีม", choices=choices, default=_ui_theme_name()
-                              if _ui_theme_name() in choices else "luxe")
+                              if _ui_theme_name() in choices else "luxe",
+                              case_sensitive=False)
     except (EOFError, KeyboardInterrupt):
         console.print()
         return ""
-    return _apply_ui_theme(selected)
+    return _apply_ui_theme(_normalize_theme_choice(selected))
 
 
 def _computer_mod():
