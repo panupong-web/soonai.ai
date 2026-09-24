@@ -33,6 +33,12 @@ function Add-UserPath([string]$PathToAdd) {
     Write-Host "[OK] Added $PathToAdd to the user PATH"
 }
 
+function Assert-Success([string]$Operation) {
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Operation failed with exit code $LASTEXITCODE"
+    }
+}
+
 if (-not $Install) {
     if (-not (Test-Path -LiteralPath $target)) {
         Write-Host "[ERROR] Install directory does not exist: $target"
@@ -43,15 +49,23 @@ if (-not $Install) {
 }
 
 $python = Get-PythonCommand
+$pythonVersion = (& $python.Exe @($python.Args) -c "import sys; print('%s.%s' % (sys.version_info[0], sys.version_info[1]) )").Trim()
+Assert-Success "Python version check"
+if ($pythonVersion -notmatch '^3\.(1[2-9]|[2-9][0-9])$') {
+    throw "SoonAI requires Python 3.12 or newer (found $pythonVersion)"
+}
 New-Item -ItemType Directory -Force -Path $target | Out-Null
 if (-not (Test-Path -LiteralPath (Join-Path $venvDir "Scripts\python.exe"))) {
     & $python.Exe @($python.Args) -m venv $venvDir
+    Assert-Success "Virtual environment creation"
 }
 $venvPython = Join-Path $venvDir "Scripts\python.exe"
 & $venvPython -m pip install --upgrade pip
+Assert-Success "pip upgrade"
 & $venvPython -m pip install -r (Join-Path $sourceDir "requirements.txt")
+Assert-Success "dependency installation"
 
-$files = @("soonai.py", "soonai_custom.py", "requirements.txt", "soonai.spec")
+$files = @("soonai.py", "soonai_custom.py", "requirements.txt", "soonai.spec", "README.md")
 foreach ($file in $files) {
     Copy-Item -LiteralPath (Join-Path $sourceDir $file) -Destination $target -Force
 }

@@ -13,7 +13,15 @@ elif command -v python3 >/dev/null 2>&1; then
 elif command -v python >/dev/null 2>&1; then
     PYTHON=$(command -v python)
 else
-    echo "[ERROR] ไม่พบ Python 3 กรุณาติดตั้งผ่าน package manager ของระบบ" >&2
+    echo "[ERROR] Python 3 was not found. Install it with your system package manager." >&2
+    exit 1
+fi
+
+PYTHON_VERSION=$("$PYTHON" -c 'import sys; print("%s.%s" % (sys.version_info[0], sys.version_info[1]))')
+PYTHON_MAJOR=${PYTHON_VERSION%%.*}
+PYTHON_MINOR=${PYTHON_VERSION#*.}
+if [ "$PYTHON_MAJOR" -ne 3 ] || [ "$PYTHON_MINOR" -lt 12 ]; then
+    echo "[ERROR] SoonAI requires Python 3.12 or newer (found $PYTHON_VERSION)." >&2
     exit 1
 fi
 
@@ -25,7 +33,7 @@ fi
 "$VENV_DIR/bin/python" -m pip install --upgrade pip
 "$VENV_DIR/bin/python" -m pip install -r "$SCRIPT_DIR/requirements.txt"
 
-for file in soonai.py soonai_custom.py requirements.txt soonai.spec; do
+for file in soonai.py soonai_custom.py requirements.txt soonai.spec README.md; do
     cp "$SCRIPT_DIR/$file" "$INSTALL_DIR/$file"
 done
 for directory in shared apps packages; do
