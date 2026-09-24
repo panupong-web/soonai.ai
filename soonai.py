@@ -2973,14 +2973,35 @@ def _is_model_not_found(status, body_text):
 
 def _model_replacement_candidates(provider, model, body_text):
     """คืน slug ที่ endpoint แนะนำก่อนเริ่ม failover ไปโมเดลอื่น"""
-    text = body_text if isinstance(body_text, str) else str(body_text or "")
+    if isinstance(body_text, dict):
+        parts = []
+
+        def _collect(value):
+            if isinstance(value, dict):
+                for item in value.values():
+                    _collect(item)
+            elif isinstance(value, list):
+                for item in value:
+                    _collect(item)
+            elif value is not None:
+                parts.append(str(value))
+
+        _collect(body_text)
+        text = " ".join(parts)
+    else:
+        text = body_text if isinstance(body_text, str) else str(body_text or "")
     candidates = []
     # OpenRouter ใช้ :free เป็น routing variant; เมื่อ variant ถูกปิด
     # paid slug ของโมเดลเดียวกันมักยังใช้งานได้
-    if provider == "openrouter" and str(model).endswith(":free"):
+    lower_text = text.lower()
+    if (provider == "openrouter" and str(model).endswith(":free")
+            and ("unavailable for free" in lower_text
+                 or "paid version is available" in lower_text)):
         candidates.append(str(model)[:-5])
     # รองรับข้อความจาก gateway ที่บอก slug ใหม่โดยตรง
     patterns = (
+        r"use\s+this\s*[\r\n ]+slug\s+instead\s*:\s*"
+        r"([A-Za-z0-9][A-Za-z0-9._:/-]+)",
         r"use\s+(?:this\s+)?(?:model\s+)?(?:slug\s+)?(?:instead\s*[:\-]?\s*)"
         r"([A-Za-z0-9][A-Za-z0-9._:/-]+)",
         r"(?:use|try)\s+(?:the\s+)?(?:paid\s+)?(?:version|model)\s+"
@@ -3022,6 +3043,11 @@ def _failover_free(provider, model, status, body_text, switches_done, max_switch
     import time as _t
     transient = _transient_fail(status, body_text)
     notfound = (status == 404) or _is_model_not_found(status, body_text)
+    replacement = _model_replacement_candidates(provider, model, body_text)
+    if replacement and switches_done < max_switches:
+        LAST_MODEL_SWITCH = {"provider": provider, "from": model,
+                             "to": replacement[0], "ts": _t.time()}
+        return replacement[0]
     if switches_done >= max_switches or (not transient and not notfound):
         return ""
     try:
