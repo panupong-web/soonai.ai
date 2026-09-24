@@ -26,6 +26,13 @@ The installer uses `~/.local/share/soonai` for application files and
 `~/.local/bin/soonai` for the launcher. Set `SOONAI_INSTALL_DIR` or
 `SOONAI_BIN_DIR` to customize these locations.
 
+The installer adds `~/.local/bin` to `~/.profile` and `~/.zprofile` when
+possible. If your shell uses another startup file, add this line manually:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
 Open a new terminal after installation, then run:
 
 ```text

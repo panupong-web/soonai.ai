@@ -47,10 +47,22 @@ exec "$VENV_DIR/bin/python" "$INSTALL_DIR/soonai.py" "\$@"
 EOF
 chmod +x "$BIN_DIR/soonai"
 
-case ":${PATH}:" in
-    *:"$BIN_DIR":*) ;;
-    *) echo "[INFO] เพิ่ม $BIN_DIR ลง PATH ใน shell profile ของคุณเพื่อเรียกใช้ 'soonai' ได้ทุกที่" ;;
-esac
+PATH_LINE="export PATH=\"$BIN_DIR:\$PATH\""
+PATH_UPDATED=0
+for profile in "$HOME/.profile" "$HOME/.zprofile"; do
+    if { [ -f "$profile" ] && [ -w "$profile" ]; } ||
+        { [ ! -e "$profile" ] && [ -w "$HOME" ]; }; then
+        if ! grep -Fqx "$PATH_LINE" "$profile" 2>/dev/null; then
+            printf '\n# SoonAI\n%s\n' "$PATH_LINE" >> "$profile"
+        fi
+        PATH_UPDATED=1
+    fi
+done
 
 echo "[OK] SoonAI ติดตั้งสำเร็จที่ $INSTALL_DIR"
-echo "[INFO] เปิด terminal ใหม่แล้วใช้คำสั่ง: soonai"
+if [ "$PATH_UPDATED" -eq 1 ]; then
+    echo "[INFO] เปิด terminal ใหม่แล้วใช้คำสั่ง: soonai"
+else
+    echo "[INFO] เรียกใช้ด้วย: $BIN_DIR/soonai"
+    echo "[INFO] หรือเพิ่ม $BIN_DIR ลง PATH ของ shell เอง"
+fi
