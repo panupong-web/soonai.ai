@@ -283,6 +283,48 @@ def _normalize_theme_choice(value):
     return str(value or "").strip().lower()
 
 
+def _choose_theme_dialog(title, choices, labels):
+    try:
+        from prompt_toolkit.application import Application
+        from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.layout import Layout
+        from prompt_toolkit.layout.containers import HSplit
+        from prompt_toolkit.styles import Style
+        from prompt_toolkit.widgets import Button, Dialog
+    except Exception:
+        return ""
+    result = {"value": ""}
+    kb = KeyBindings()
+
+    @kb.add("escape")
+    @kb.add("c-c")
+    def _cancel(event):
+        event.app.exit(result="")
+
+    def _pick(value):
+        def _handler():
+            result["value"] = value
+            try:
+                from prompt_toolkit.application.current import get_app
+                get_app().exit(result=value)
+            except Exception:
+                pass
+        return _handler
+
+    buttons = [Button(labels[name], handler=_pick(name)) for name in choices]
+    dialog = Dialog(title=title,
+                    body=HSplit(buttons, padding=1),
+                    modal=True)
+    try:
+        app = Application(layout=Layout(dialog), key_bindings=kb,
+                          mouse_support=True, full_screen=False,
+                          erase_when_done=True,
+                          style=Style.from_dict({"dialog.body": "bg:#1a2230"}))
+        return app.run() or result["value"]
+    except Exception:
+        return ""
+
+
 def choose_ui_theme(initial=False):
     """เลือกธีมผ่าน prompt ครั้งแรกหรือเมื่อเรียก /theme"""
     choices = ["luxe", "aurora", "sunset", "classic"]
@@ -296,6 +338,11 @@ def choose_ui_theme(initial=False):
         current = _ui_theme_name()
         return _apply_ui_theme("luxe" if current != "luxe" else "classic")
     title = "เลือกธีม SoonAI ครั้งแรก" if initial else "เลือกธีม SoonAI"
+    selected = _choose_theme_dialog(title, choices, labels)
+    if selected:
+        return _apply_ui_theme(_normalize_theme_choice(selected))
+    if not initial:
+        return ""
     console.print(Panel("\n".join(f"{i}. {labels[n]}" for i, n in enumerate(choices, 1)),
                         title=title, border_style="cyan"))
     try:
