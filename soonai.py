@@ -3834,11 +3834,11 @@ def _agent_status_failover(driver, r, switches):
 
 # approve + รัน tool + update seen_feeds (ข้าม mcp ซ้ำ/ล้างเมื่อ state เปลี่ยน)
 def _agent_tool_exec(name, fargs, desc, auto_yes, seen_feeds, used):
-    hook_ok, hook_error = _run_project_hook("before_tool", name)
-    if not hook_ok:
-        return False, hook_error, used
     allowed = approve(name, desc, fargs, auto_yes)
     if allowed:
+        hook_ok, hook_error = _run_project_hook("before_tool", name)
+        if not hook_ok:
+            return False, hook_error, used
         used += 1
         try:
             _sig = _cmd_sig(name, fargs)
