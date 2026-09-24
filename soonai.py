@@ -6170,6 +6170,35 @@ def refresh_session_title(sid, provider, model, messages,
         return str(d.get("name", "") or "")
 
 
+_TITLE_JOBS = set()
+_TITLE_JOBS_LOCK = threading.Lock()
+
+
+def refresh_session_title_async(sid, provider, model, messages):
+    """ตั้งชื่อ session เบื้องหลังโดยไม่บล็อก prompt หลังคำตอบหลักจบ"""
+    if not sid:
+        return
+    key = str(sid)
+    with _TITLE_JOBS_LOCK:
+        if key in _TITLE_JOBS:
+            return
+        _TITLE_JOBS.add(key)
+
+    snapshot = [dict(m) for m in (messages or []) if isinstance(m, dict)]
+
+    def _work():
+        try:
+            refresh_session_title(key, provider, model, snapshot)
+        except Exception as e:
+            _DBG.log_swallowed(e, "soonai.py:refresh_session_title_async",
+                               "ตั้งหัวข้อ session เบื้องหลังไม่สำเร็จ")
+        finally:
+            with _TITLE_JOBS_LOCK:
+                _TITLE_JOBS.discard(key)
+
+    threading.Thread(target=_work, name=f"soonai-title-{key}", daemon=True).start()
+
+
 def show_reply(provider, model, messages, temperature, effort=None):
     """สตรีมคำตอบแบบ markdown สด ๆ (โชว์สปินเนอร์ก่อนโทเคนแรก) คืนข้อความเต็ม"""
     global LAST_SEND_ERROR
