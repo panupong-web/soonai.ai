@@ -2971,6 +2971,53 @@ def _is_model_not_found(status, body_text):
                                    "unknown model", "does not exist", "not a valid model"))
 
 
+def _model_replacement_candidates(provider, model, body_text):
+    """คืน slug ที่ endpoint แนะนำก่อนเริ่ม failover ไปโมเดลอื่น"""
+    if isinstance(body_text, dict):
+        parts = []
+
+        def _collect(value):
+            if isinstance(value, dict):
+                for item in value.values():
+                    _collect(item)
+            elif isinstance(value, list):
+                for item in value:
+                    _collect(item)
+            elif value is not None:
+                parts.append(str(value))
+
+        _collect(body_text)
+        text = " ".join(parts)
+    else:
+        text = body_text if isinstance(body_text, str) else str(body_text or "")
+    candidates = []
+    # OpenRouter ใช้ :free เป็น routing variant; เมื่อ variant ถูกปิด
+    # paid slug ของโมเดลเดียวกันมักยังใช้งานได้
+    lower_text = text.lower()
+    if (provider == "openrouter" and str(model).endswith(":free")
+            and ("unavailable for free" in lower_text
+                 or "paid version is available" in lower_text)):
+        candidates.append(str(model)[:-5])
+    # รองรับข้อความจาก gateway ที่บอก slug ใหม่โดยตรง
+    patterns = (
+        r"use\s+this\s*[\r\n ]+slug\s+instead\s*:\s*"
+        r"([A-Za-z0-9][A-Za-z0-9._:/-]+)",
+        r"use\s+(?:this\s+)?(?:model\s+)?(?:slug\s+)?(?:instead\s*[:\-]?\s*)"
+        r"([A-Za-z0-9][A-Za-z0-9._:/-]+)",
+        r"(?:use|try)\s+(?:the\s+)?(?:paid\s+)?(?:version|model)\s+"
+        r"(?:with\s+)?(?:slug\s+)?([A-Za-z0-9][A-Za-z0-9._:/-]+)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            candidates.append(match.group(1).rstrip(".,;)"))
+    result = []
+    for candidate in candidates:
+        if candidate and candidate != model and candidate not in result:
+            result.append(candidate)
+    return result
+
+
 def _should_try_provider(status, body_text):
     """เคสที่ย้ายข้ามค่ายแล้วมีลุ้น: โควต้าตาย / ล่มชั่วคราว / key ใช้ไม่ได้ / endpoint หาย
     400 (request ผิด) ไม่ย้าย — เปลี่ยนค่ายก็พังเหมือนเดิม
@@ -2996,6 +3043,11 @@ def _failover_free(provider, model, status, body_text, switches_done, max_switch
     import time as _t
     transient = _transient_fail(status, body_text)
     notfound = (status == 404) or _is_model_not_found(status, body_text)
+    replacement = _model_replacement_candidates(provider, model, body_text)
+    if replacement and switches_done < max_switches:
+        LAST_MODEL_SWITCH = {"provider": provider, "from": model,
+                             "to": replacement[0], "ts": _t.time()}
+        return replacement[0]
     if switches_done >= max_switches or (not transient and not notfound):
         return ""
     try:
@@ -5924,6 +5976,24 @@ def send_messages(provider, model, messages, temperature, stream=True, on_chunk=
             r = driver.send(url, headers, payload)
             if r.status_code != 200:
                 body = driver.error_body(r)
+                replacements = _model_replacement_candidates(
+                    driver.provider_key, driver.model, body)
+                if replacements:
+                    global LAST_MODEL_SWITCH
+                    old_model = driver.model
+                    replacement = replacements[0]
+                    driver.set_model(replacement)
+                    switches += 1
+                    LAST_MODEL_SWITCH = {
+                        "provider": driver.provider_key,
+                        "from": old_model,
+                        "to": replacement,
+                        "ts": time.time(),
+                    }
+                    console.print(
+                        f"[dim](โมเดล {short_model(old_model)} ใช้ไม่ได้ — "
+                        f"ลอง slug {short_model(replacement)} แทน)[/dim]")
+                    continue
                 if driver.supports_switch and _quota_dead(r.status_code, body):
                     old_name = PROVIDERS[driver.provider_key]["name"]
                     np, nm = _failover_provider(driver.provider_key, driver.model)
@@ -6168,6 +6238,35 @@ def refresh_session_title(sid, provider, model, messages,
         _DBG.log_swallowed(e, "soonai.py:refresh_session_title",
                            "ตั้งหัวข้อ session ไม่สำเร็จ — ใช้ชื่อเดิมต่อ")
         return str(d.get("name", "") or "")
+
+
+_TITLE_JOBS = set()
+_TITLE_JOBS_LOCK = threading.Lock()
+
+
+def refresh_session_title_async(sid, provider, model, messages):
+    """ตั้งชื่อ session เบื้องหลังโดยไม่บล็อก prompt หลังคำตอบหลักจบ"""
+    if not sid:
+        return
+    key = str(sid)
+    with _TITLE_JOBS_LOCK:
+        if key in _TITLE_JOBS:
+            return
+        _TITLE_JOBS.add(key)
+
+    snapshot = [dict(m) for m in (messages or []) if isinstance(m, dict)]
+
+    def _work():
+        try:
+            refresh_session_title(key, provider, model, snapshot)
+        except Exception as e:
+            _DBG.log_swallowed(e, "soonai.py:refresh_session_title_async",
+                               "ตั้งหัวข้อ session เบื้องหลังไม่สำเร็จ")
+        finally:
+            with _TITLE_JOBS_LOCK:
+                _TITLE_JOBS.discard(key)
+
+    threading.Thread(target=_work, name=f"soonai-title-{key}", daemon=True).start()
 
 
 def show_reply(provider, model, messages, temperature, effort=None):

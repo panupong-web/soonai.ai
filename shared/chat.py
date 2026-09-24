@@ -1184,7 +1184,7 @@ def cmd_chat(args, keys, cfg):
                         R.console.print("[dim](ข้ามการตรวจ)[/dim]")
                 st.history = R.auto_compact_history(st.provider, st.model, st.history)
                 st.sid = R.save_session(st.sid or R._session_id(), st.provider, st.model, st.history)
-                R.refresh_session_title(st.sid, st.provider, st.model, st.history)
+                R.refresh_session_title_async(st.sid, st.provider, st.model, st.history)
                 st.history = st.history[-21:]
             else:
                 R.console.print(R.nothing_done_reason(msgs))
@@ -1209,7 +1209,7 @@ def cmd_chat(args, keys, cfg):
                     R.console.print("[dim](ข้ามการตรวจ)[/dim]")
             st.history = R.auto_compact_history(st.provider, st.model, st.history)
             st.sid = R.save_session(st.sid or R._session_id(), st.provider, st.model, st.history)
-            R.refresh_session_title(st.sid, st.provider, st.model, st.history)
+            R.refresh_session_title_async(st.sid, st.provider, st.model, st.history)
             st.history = st.history[-21:]
         else:
             st.history.pop()
