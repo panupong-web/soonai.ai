@@ -33,16 +33,38 @@ fi
 "$VENV_DIR/bin/python" -m pip install --upgrade pip
 "$VENV_DIR/bin/python" -m pip install -r "$SCRIPT_DIR/requirements.txt"
 
-for file in soonai.py soonai_custom.py requirements.txt soonai.spec README.md; do
+for file in soonai.py requirements.txt soonai.spec README.md; do
     cp "$SCRIPT_DIR/$file" "$INSTALL_DIR/$file"
 done
-for directory in shared apps packages; do
-    mkdir -p "$INSTALL_DIR/$directory"
-    cp -R "$SCRIPT_DIR/$directory/." "$INSTALL_DIR/$directory/"
+
+# คัดลอก shared/ โดยเว้น "ความลับกับค่าส่วนตัวของผู้พัฒนา" และของที่เครื่องปลายทางสร้างเอง
+# (keys.json/config.json/team.json/mcp.json = ของผู้ใช้ · *.default.json ต้องคัดลอก
+#  เพราะ runtime.ensure_user_files() ใช้เป็นต้นแบบตอนสร้างไฟล์ที่ DATA_DIR ครั้งแรก)
+mkdir -p "$INSTALL_DIR/shared"
+(
+    cd "$SCRIPT_DIR/shared" &&
+    find . \
+        -name '__pycache__' -prune -o \
+        -name 'keys.json' -prune -o \
+        -name 'config.json' -prune -o \
+        -name 'team.json' -prune -o \
+        -name 'mcp.json' -prune -o \
+        -name '.machine_id' -prune -o \
+        -name '.models_cache.json' -prune -o \
+        -type f -print
+) | while IFS= read -r relative; do
+    relative=${relative#./}
+    destination="$INSTALL_DIR/shared/$relative"
+    mkdir -p "$(dirname "$destination")"
+    cp "$SCRIPT_DIR/shared/$relative" "$destination"
 done
 
 cat > "$BIN_DIR/soonai" <<EOF
 #!/usr/bin/env sh
+# บังคับ UTF-8: ทุกข้อความ UI เป็นภาษาไทย ถ้า locale ไม่ใช่ UTF-8 จะ UnicodeEncodeError
+PYTHONUTF8=1
+PYTHONIOENCODING=utf-8
+export PYTHONUTF8 PYTHONIOENCODING
 exec "$VENV_DIR/bin/python" "$INSTALL_DIR/soonai.py" "\$@"
 EOF
 chmod +x "$BIN_DIR/soonai"

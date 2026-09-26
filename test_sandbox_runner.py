@@ -174,6 +174,52 @@ check("agents.md: คำสั่งมี pipe ไม่ติด allowlist",
       S._project_test_commands(_tmp_ag) == ())
 S._TEST_CMD_CACHE["key"] = None
 
+# ------------------------------------------- 7) พาธในอาร์กิวเมนต์ต้องอยู่ในโฟลเดอร์งาน
+# allowlist ดูแค่ "ขึ้นต้นด้วยคำสั่งอะไร" จึงกัน argument injection ไม่ได้ —
+# คำสั่งที่ผ่าน allowlist แต่ชี้พาธออกนอกโฟลเดอร์งานต้องถูกปฏิเสธ
+_ROOT = Path(os.getcwd()).resolve()
+_OUT = _ROOT.parent            # นอกโฟลเดอร์งานแน่นอน (repo ไม่ได้อยู่ที่รากดิสก์)
+
+check("paths_ok: คำสั่งไม่มีพาธ = ผ่าน", S._safe_shell_paths_ok("git status") is True)
+check("paths_ok: พาธสัมพัทธ์ในโฟลเดอร์งาน = ผ่าน",
+      S._safe_shell_paths_ok("python -m pytest tests/unit") is True)
+check("paths_ok: go test ./... = ผ่าน (ไม่ใช่พาธออกนอก)",
+      S._safe_shell_paths_ok("go test ./...") is True)
+check("paths_ok: switch ของ Windows ไม่ใช่พาธ",
+      S._safe_shell_paths_ok("dir /s /b") is True)
+check("paths_ok: flag ที่มี = ไม่ใช่พาธ absolute",
+      S._safe_shell_paths_ok("git diff --stat") is True)
+
+check("paths_ok: ปฏิเสธพาธ absolute",
+      S._safe_shell_paths_ok(rf"python -m json.tool {_OUT}\x.json") is False)
+check("paths_ok: ปฏิเสธ --output= ชี้ออกนอก",
+      S._safe_shell_paths_ok(rf"git diff --output={_OUT}\out.txt") is False)
+check("paths_ok: ปฏิเสธ dir ชี้โฟลเดอร์อื่นทั้งดิสก์",
+      S._safe_shell_paths_ok(rf"dir {_OUT} /s /b") is False)
+check("paths_ok: ปฏิเสธ UNC path",
+      S._safe_shell_paths_ok(r"git status \\server\share") is False)
+check("paths_ok: ปฏิเสธ .. ที่ปีนออกนอก",
+      S._safe_shell_paths_ok("python -m pytest ../..") is False)
+check("paths_ok: quote ไม่ครบ = ตีความไม่ได้ = ปฏิเสธ",
+      S._safe_shell_paths_ok('git status "shared') is False)
+
+check("_path_like_tokens: ข้าม switch ของ Windows",
+      S._path_like_tokens("dir /s /b shared/skills") == ["shared/skills"],
+      S._path_like_tokens("dir /s /b shared/skills"))
+check("_path_like_tokens: ชื่อธรรมดาไม่ใช่พาธ (resolve แล้วอยู่ใน cwd อยู่ดี)",
+      S._path_like_tokens("git status shared") == [],
+      S._path_like_tokens("git status shared"))
+check("_path_like_tokens: quote ไม่ครบคืน None", S._path_like_tokens('git status "x') is None)
+
+# ผ่านทั้ง allowlist + metachar แต่ต้องตกที่ด่านพาธ
+check("safe ปฏิเสธ: python -m json.tool ไฟล์นอกโฟลเดอร์งาน",
+      S._safe_shell_ok(rf"python -m json.tool {_OUT}\secrets.json") is False)
+check("safe ปฏิเสธ: git diff --output ออกนอกโฟลเดอร์งาน",
+      S._safe_shell_ok(rf"git diff --output={_OUT}\o.txt") is False)
+check("safe ยังรับ: pytest โฟลเดอร์ย่อยในโปรเจกต์",
+      S._safe_shell_ok("python -m pytest tests/unit") is True)
+check("safe ยังรับ: go test ./...", S._safe_shell_ok("go test ./...") is True)
+
 print()
 if FAILS:
     print(f"FAILED {len(FAILS)}: {FAILS}")

@@ -15,6 +15,7 @@ import sys
 import tempfile
 import threading
 import time
+from pathlib import Path
 
 sys.path.insert(0, ".")
 sys.path.insert(0, "shared")
@@ -37,15 +38,22 @@ def blk(tool, args):
 
 
 # 1) ไฟล์ secret เดิม + ที่เพิ่มใหม่ + โฟลเดอร์ต้องห้ามทั้งอัน
-check("block keys.json (relative)", blk("read_file", {"path": "shared/keys.json"}))
+# config/keys/team ย้ายไป DATA_DIR แล้ว — ต้องกันทั้งตำแหน่งใหม่และตำแหน่งเดิมใน shared/
+# (เครื่องที่อัปเกรดจากรุ่นเก่าอาจยังมีร่างค้างอยู่ และอาจเป็น plaintext)
+check("block keys.json (ตำแหน่งเดิม relative)", blk("read_file", {"path": "shared/keys.json"}))
 check("block keys.json (case/sep)",
       blk("read_file", {"path": "SHARED" + os.sep + "KEYS.JSON"}))
 check("block keys.json (dotdot)",
       blk("read_file", {"path": "shared/../shared/keys.json"}))
-check("block config.json write",
+check("block keys.json (DATA_DIR)", blk("read_file", {"path": str(S.KEYS_FILE)}))
+check("block config.json write (DATA_DIR)",
+      blk("write_file", {"path": str(S.CONFIG_FILE), "content": "x"}))
+check("block config.json write (ตำแหน่งเดิม)",
       blk("write_file", {"path": "shared/config.json", "content": "x"}))
-check("block team.json", blk("edit_file", {"path": "shared/team.json",
-                                           "old_string": "a", "new_string": "b"}))
+check("block team.json (DATA_DIR)",
+      blk("edit_file", {"path": str(S.TEAM_FILE), "old_string": "a", "new_string": "b"}))
+check("block team.json (ตำแหน่งเดิม)", blk("edit_file", {"path": "shared/team.json",
+                                                         "old_string": "a", "new_string": "b"}))
 check("block crash.log", blk("read_file", {"path": "crash.log"}))
 check("block debug_last.json", blk("read_file", {"path": "debug_last.json"}))
 check("block session transcript",
@@ -428,6 +436,152 @@ try:
     check("info carries cap", info.get("cap") == 3, info)
 finally:
     S._post_chat = orig_post
+
+# 9) project hook: ไฟล์ .soonai/hooks.json มาจาก repo — ใคร push ได้ก็สั่งรันคำสั่งได้
+#    จึงต้องมี (ก) ด่านโหมด shell (ข) การยินยอมต่อโปรเจค ผูกกับ hash ของไฟล์
+#    (ค) fail closed เมื่อถามไม่ได้ และ (ง) ด่าน safe-shell
+_repo_cwd = os.getcwd()
+_orig_data_dir = S.DATA_DIR
+_orig_shell_mode = S._shell_mode
+_orig_run_safe = S.run_command_safe
+_orig_stdin_hook = sys.stdin
+_hook_root = Path(tempfile.mkdtemp(prefix="soonai-hook-"))
+_hook_data = Path(tempfile.mkdtemp(prefix="soonai-hookdata-"))
+_ran = []
+
+
+class _PipeStdin:
+    """stdin แบบไม่ใช่ tty (CI/pipe/cron) — ถามผู้ใช้ไม่ได้"""
+
+    def isatty(self):
+        return False
+
+
+def _write_hooks(obj):
+    d = _hook_root / ".soonai"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "hooks.json").write_text(json.dumps(obj), encoding="utf-8")
+
+
+def _fake_run_safe(command, **kw):
+    _ran.append(command)
+    return {"code": 0, "out": "", "err": "", "timed_out": False}
+
+
+try:
+    os.chdir(_hook_root)
+    S.DATA_DIR = _hook_data
+    S._shell_mode = lambda: "safe"
+    S.run_command_safe = _fake_run_safe
+    sys.stdin = _PipeStdin()
+    _root = S.workspace_root()
+
+    ok, err = S._run_project_hook("before_tool", "run_tests")
+    check("hook: ไม่มีไฟล์ = ผ่านเงียบ ๆ", ok is True and err == "" and _ran == [], (ok, err))
+
+    check("hook: event แปลก = error", S._run_project_hook("around_tool", "x")[0] is False)
+
+    _write_hooks({"before_tool": {"run_tests": "python -m pytest -q"}})
+    ok, err = S._run_project_hook("before_tool", "run_tests")
+    check("hook: ยังไม่ยินยอม + ถามไม่ได้ = ปฏิเสธ (fail closed)",
+          ok is False and "ไม่ได้รับอนุญาต" in err and _ran == [], (ok, err, _ran))
+
+    S._shell_mode = lambda: "off"
+    S._HOOK_WARNED["off"] = False
+    _ran.clear()
+    ok, err = S._run_project_hook("before_tool", "run_tests")
+    check("hook: shell off = ข้าม hook (ไม่รัน ไม่บล็อก)",
+          ok is True and err == "" and _ran == [], (ok, err, _ran))
+    S._shell_mode = lambda: "safe"
+
+    raw = (_hook_root / ".soonai" / "hooks.json").read_bytes()
+    S._hook_trust_set(_root, S._hook_digest(raw))
+    check("hook: trust file อยู่นอก repo (ใต้ DATA_DIR)",
+          S._hook_trust_file() == _hook_data / "hook_trust.json", S._hook_trust_file())
+    ok, err = S._run_project_hook("before_tool", "run_tests")
+    check("hook: อนุมัติแล้ว + คำสั่งผ่าน safe-shell = รัน",
+          ok is True and err == "" and _ran == ["python -m pytest -q"], (ok, err, _ran))
+
+    _ran.clear()
+    ok, err = S._run_project_hook("after_tool", "run_tests")
+    check("hook: event ที่ไม่มีคำสั่งในไฟล์ = ผ่านเงียบ (ไม่รัน)",
+          ok is True and err == "" and _ran == [], (ok, err, _ran))
+
+    # repo ถูกแก้เป็นคำสั่งร้ายหลังได้รับอนุมัติ → hash ไม่ตรง → ต้องถามใหม่ (และปฏิเสธ)
+    _write_hooks({"before_tool": {"run_tests": "python -m pytest -q",
+                                  "write_file": "python -c \"import os;os.system('calc')\""}})
+    _ran.clear()
+    ok, err = S._run_project_hook("before_tool", "run_tests")
+    check("hook: แก้ไฟล์หลังอนุมัติ = hash ตก = ถามใหม่/ปฏิเสธ",
+          ok is False and "ไม่ได้รับอนุญาต" in err and _ran == [], (ok, err, _ran))
+
+    raw = (_hook_root / ".soonai" / "hooks.json").read_bytes()
+    S._hook_trust_set(_root, S._hook_digest(raw))
+    _ran.clear()
+    ok, err = S._run_project_hook("before_tool", "write_file")
+    check("hook: อนุมัติแล้วแต่คำสั่งไม่ผ่าน safe-shell = ปฏิเสธ",
+          ok is False and "ไม่ผ่าน safe-shell" in err and _ran == [], (ok, err, _ran))
+
+    # ไฟล์ใหญ่ผิดปกติ (>100KB) = น่าสงสัย ให้ข้ามแทนที่จะ parse
+    (_hook_root / ".soonai" / "hooks.json").write_text(
+        json.dumps({"before_tool": {"run_tests": "git status"},
+                    "pad": "x" * 200_000}), encoding="utf-8")
+    _ran.clear()
+    ok, err = S._run_project_hook("before_tool", "run_tests")
+    check("hook: ไฟล์ใหญ่เกินเพดาน = ข้าม", ok is True and err == "" and _ran == [],
+          (ok, err, _ran))
+
+    # hooks.json พัง = ต้องไม่พังทั้ง agent
+    (_hook_root / ".soonai" / "hooks.json").write_text("{ not json", encoding="utf-8")
+    ok, err = S._run_project_hook("before_tool", "run_tests")
+    check("hook: JSON พัง = error นุ่ม ๆ ไม่ raise", ok is False and err.startswith("ERROR:"),
+          (ok, err))
+finally:
+    sys.stdin = _orig_stdin_hook
+    os.chdir(_repo_cwd)
+    S.DATA_DIR = _orig_data_dir
+    S._shell_mode = _orig_shell_mode
+    S.run_command_safe = _orig_run_safe
+
+# 9b) key เก็บ plaintext ต้อง "บอก" ไม่ใช่เงียบ (เงียบ = ผู้ใช้เข้าใจผิดว่า DPAPI คุ้มอยู่)
+_orig_keys_file2 = S.KEYS_FILE
+_orig_encode = S._encode_key
+_tmp_keys2 = tempfile.mkdtemp(prefix="soonai-plain-")
+try:
+    S.KEYS_FILE = os.path.join(_tmp_keys2, "keys.json")
+    S._KEYS_PLAIN_WARN["shown"] = False
+    S._encode_key = lambda v: v          # จำลอง DPAPI ล้มเหลว / ไม่ใช่ Windows
+    S.save_keys({"openrouter": "sk-plaintext-1"})
+    _saved = json.loads(open(S.KEYS_FILE, encoding="utf-8").read())
+    check("key plaintext: ยังบันทึกได้ (ไม่ทำผู้ใช้เสีย key)",
+          _saved.get("openrouter") == "sk-plaintext-1", _saved)
+    check("key plaintext: ตั้งธงเตือนแล้ว", S._KEYS_PLAIN_WARN["shown"] is True)
+    check("_warn_plaintext_keys: ว่าง = ไม่ตั้งธง",
+          (S._KEYS_PLAIN_WARN.update(shown=False), S._warn_plaintext_keys([]),
+           S._KEYS_PLAIN_WARN["shown"])[2] is False)
+finally:
+    S._encode_key = _orig_encode
+    S.KEYS_FILE = _orig_keys_file2
+
+# 9c) ไฟล์ key ต้องได้สิทธิ์เข้มตั้งแต่ตอนเขียน (ตั้งที่ temp ก่อน replace — ไม่มีช่วง 0644)
+_orig_keys_file3 = S.KEYS_FILE
+_tmp_keys3 = tempfile.mkdtemp(prefix="soonai-perm-")
+try:
+    S.KEYS_FILE = os.path.join(_tmp_keys3, "keys.json")
+    S.save_keys({"openrouter": "sk-perm-check"})
+    if os.name == "nt":
+        # Windows: os.chmod สลับได้แค่ read-only bit — ต้องยังเป็นไฟล์ที่เขียนซ้ำได้
+        check("keys.json บน Windows ยังเขียนซ้ำได้ (ไม่กลายเป็น read-only)",
+              os.access(S.KEYS_FILE, os.W_OK))
+    else:
+        check("keys.json ได้สิทธิ์ 0600",
+              (os.stat(S.KEYS_FILE).st_mode & 0o777) == 0o600,
+              oct(os.stat(S.KEYS_FILE).st_mode & 0o777))
+    check("ไม่มีไฟล์ .tmp ค้างหลังเขียน key",
+          [p for p in os.listdir(_tmp_keys3) if p.endswith(".tmp")] == [],
+          os.listdir(_tmp_keys3))
+finally:
+    S.KEYS_FILE = _orig_keys_file3
 
 print()
 if FAILS:

@@ -49,6 +49,34 @@ THEMES = {
         "muted": "#d8b08c",
         "faint": "#755c4c",
     },
+    "ocean": {
+        **PALETTE,
+        "accent": "#4cc9f0",
+        "accent2": "#4361ee",
+        "muted": "#9ec5d6",
+        "faint": "#426273",
+    },
+    "forest": {
+        **PALETTE,
+        "accent": "#8ac926",
+        "accent2": "#198754",
+        "muted": "#b8d39a",
+        "faint": "#526b3a",
+    },
+    "cyberpunk": {
+        **PALETTE,
+        "accent": "#fcee0a",
+        "accent2": "#ff003c",
+        "muted": "#e0dc82",
+        "faint": "#706c25",
+    },
+    "mono": {
+        **PALETTE,
+        "accent": "#ffffff",
+        "accent2": "#bdbdbd",
+        "muted": "#b0b0b0",
+        "faint": "#666666",
+    },
 }
 
 
@@ -87,15 +115,13 @@ def glyph(name, fallback="·"):
     return GLYPH.get(name, fallback)
 
 
-def rich_theme(classic=False, palette=None):
-    """สร้าง rich.theme.Theme — โทน luxe (ดีฟอลต์) หรือ classic (นีออนเดิม)
+def rich_theme(palette=None):
+    """สร้าง rich.theme.Theme จาก palette (ค่าเริ่มต้น = PALETTE ปัจจุบัน)
 
     remap ชื่อสีพื้นฐานเพื่อให้ทุก `[cyan]`/`[magenta]`/... ทั้งโปรแกรม
     เปลี่ยนเป็นโทนใหม่พร้อมกัน
     """
     from rich.theme import Theme
-    if classic:
-        return Theme({})
     p = palette or PALETTE
     t = {}
     t["cyan"] = p["accent"]
@@ -115,10 +141,9 @@ def rich_theme(classic=False, palette=None):
 
 
 def console_theme(theme_name="luxe"):
-    """Theme ตามชื่อที่ตั้งใน config (ui.theme)"""
-    selected = apply_theme(theme_name) or "luxe"
-    return rich_theme(palette=PALETTE if selected != "classic" else None,
-                      classic=False if selected != "classic" else True)
+    """Theme ตามชื่อที่ตั้งใน config (ui.theme) — ทุกธีมรวมทั้ง classic ใช้ palette ของตัวเอง"""
+    apply_theme(theme_name)
+    return rich_theme(palette=PALETTE)
 
 
 def style(name):

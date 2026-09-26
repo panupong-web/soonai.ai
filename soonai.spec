@@ -1,52 +1,49 @@
 # -*- coding: utf-8 -*-
-# PyInstaller spec สำหรับ SoonAI CLI
-# ใช้: pyinstaller soonai.spec  → ได้ dist/soonai.exe
+# PyInstaller spec สำหรับ SoonAI CLI (PyInstaller >= 6)
+# ใช้: pyinstaller soonai.spec  → ได้ dist/soonai.exe (onefile)
+#
+# หมายเหตุ: ไฟล์ config/keys/team ของผู้ใช้ไม่อยู่ใน bundle — ตอนรันจริง
+# runtime.ensure_user_files() จะสร้าง/ย้ายไปที่ DATA_DIR
+# (%LOCALAPPDATA%\SoonAI · ~/.soonai) จาก *.default.json ที่แนบมาข้างล่าง
 
-# === ตั้งชื่อและ version ===
-block_cipher = None
+# soonai.py ทำ sys.path.insert(shared/) ตอนรัน ซึ่ง PyInstaller มองไม่เห็น
+# จึงต้องบอก pathex เอง แล้วอ้างโมดูลใน shared/ ด้วยชื่อชั้นบนสุด (ไม่ใช่ shared.X)
+_SHARED_MODULES = [
+    'chat',
+    'computer',
+    'debug',
+    'mcp_client',
+    'permissions',
+    'project',
+    'providers',
+    'runtime',
+    'shell',
+    'skills',
+    'symbols',
+    'ui_render',
+    'ui_theme',
+    'usage',
+]
+
+# skills.py อ่าน shared/skills/<ชื่อสกิล>/SKILL.md — datas แบบ glob จะแบนโฟลเดอร์
+# จึงไล่จับคู่ทีละสกิลเองเพื่อคงโครงโฟลเดอร์ไว้
+from pathlib import Path  # noqa: E402
+
+_SKILL_DATAS = [(str(p), str(Path('shared/skills') / p.parent.name))
+                for p in Path('shared/skills').glob('*/SKILL.md')]
 
 a = Analysis(
     ['soonai.py'],
-    pathex=[],
+    pathex=['shared'],
     binaries=[],
-    datas=[
-        # รวม shared/ modules ทั้งหมด
-        ('shared/*.py', 'shared'),
-        ('shared/core_utils/*.py', 'shared/core_utils'),
-        ('shared/core_utils/__init__.py', 'shared/core_utils'),
-        ('shared/skills.off/*.md', 'shared/skills.off'),
-        ('shared/skills/*.md', 'shared/skills'),
-        # config files
-        ('shared/config.json', 'shared'),
-        ('shared/team.json', 'shared'),
-        ('shared/mcp.example.json', 'shared'),
-        ('shared/keys.example.json', 'shared'),
+    datas=_SKILL_DATAS + [
+        # ข้อมูลที่อ่านตอนรัน (ไม่ใช่โค้ด) — ต้องอยู่ใต้ shared/ ใน bundle
+        # เพราะ runtime.SHARED_DIR ชี้ที่นั่น
+        ('shared/mcp_catalog.json', 'shared'),
+        ('shared/config.default.json', 'shared'),
+        ('shared/team.default.json', 'shared'),
     ],
-    hiddenimports=[
-        'shared.core_utils.model_router',
-        'shared.core_utils',
-        'shared.skills',
-        'shared.providers',
-        'shared.runtime',
-        'shared.chat',
-        'shared.computer',
-        'shared.debug',
-        'shared.permissions',
-        'shared.project',
-        'shared.shell',
-        'shared.symbols',
-        'shared.ui_theme',
-        'shared.ui_render',
-        'shared.usage',
-        'shared.mcp_client',
-        'debug',
-        'project',
-        'shell',
-        'symbols',
-        'skills',
-        'usage',
-        'model_selector',
-    ],
+    hiddenimports=_SHARED_MODULES,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -60,19 +57,15 @@ a = Analysis(
         'ruff',
         'pyinstaller',
     ],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
     noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
-    a.zipfiles,
     a.datas,
     [],
     name='soonai',
@@ -89,16 +82,4 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=None,
-)
-
-# Collect all data files
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='soonai',
 )

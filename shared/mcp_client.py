@@ -586,11 +586,13 @@ def _atomic_write_text(path, text):
     temp = target.with_name(".%s.%s.%s.tmp" % (target.name, os.getpid(), threading.get_ident()))
     try:
         temp.write_text(text, encoding="utf-8")
-        os.replace(temp, target)
         try:
-            os.chmod(target, 0o600)
+            # mcp.json เก็บ env ของ server ซึ่งมักมี API key — ตั้งสิทธิ์ที่ไฟล์ชั่วคราว
+            # ก่อน replace ถ้ารอตั้งที่ปลายทางทีหลังจะมีช่วงที่เปิดอ่านได้ด้วยสิทธิ์ปกติ
+            os.chmod(temp, 0o600)
         except OSError:
             pass
+        os.replace(temp, target)
     finally:
         try:
             if temp.exists():

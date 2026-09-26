@@ -15,6 +15,10 @@ import soonai as S  # noqa: E402
 
 FAILS = []
 
+# grep/glob ถูกล้อมไว้ให้แตะได้เฉพาะโฟลเดอร์งาน (outside_workspace) — เทสต์จึงต้อง
+# chdir เข้าโฟลเดอร์จำลองก่อน แล้วค่อยกลับมารากโปรเจกต์จริงตอนตรวจ guard ของ secret
+_REPO = os.getcwd()
+
 
 def check(name, cond, extra=""):
     if cond:
@@ -50,6 +54,8 @@ w(".soonaiignore", "keep/\n")
 with open(os.path.join(root, "binary.bin"), "wb") as fh:
     fh.write(b"\x00\x01MAGIC_TOKEN\xff\xfe")
 
+os.chdir(root)   # ให้โฟลเดอร์จำลองเป็น "โฟลเดอร์งาน" ของ tool ค้นหา
+
 files = {os.path.relpath(str(p), root).replace("\\", "/") for p in S.iter_project_files(root)}
 check("เห็นไฟล์โปรเจกต์จริง", {"src/app.py", "src/util.js"} <= files, sorted(files))
 check("ข้าม node_modules", "node_modules/pkg/index.js" not in files)
@@ -78,6 +84,19 @@ check("glob ระดับเดียว", glob_all.strip() == "(ไม่พ�
 # grep บนไฟล์เดี่ยวต้องยังทำงาน (ไม่ผ่านตัวเดินไฟล์)
 one = S.run_tool("grep", {"pattern": "MAGIC_TOKEN", "path": os.path.join(root, "src", "app.py")})
 check("grep ไฟล์เดียว", "1: MAGIC_TOKEN = 1" in one, one)
+
+# ── ขอบเขตโฟลเดอร์งาน: tool ค้นหาต้องปฏิเสธพาธข้างนอก (ไม่ใช่พึ่งแค่ prompt อนุมัติ) ──
+outside = os.path.dirname(root)          # โฟลเดอร์แม่ของ temp = นอกโฟลเดอร์งานแน่นอน
+for tool, args in (("grep", {"pattern": "MAGIC_TOKEN", "path": outside}),
+                   ("glob", {"pattern": "**/*.py", "path": outside}),
+                   ("outline", {"path": outside})):
+    out = str(S.run_tool(tool, args))
+    check(f"{tool} ปฏิเสธพาธนอกโฟลเดอร์งาน", out.startswith("ERROR: path outside workspace"), out[:200])
+check("grep ปฏิเสธ .. ที่ชี้ออกนอก",
+      str(S.run_tool("grep", {"pattern": "x", "path": "../.."})).startswith("ERROR: path outside"),
+      S.run_tool("grep", {"pattern": "x", "path": "../.."})[:200])
+
+os.chdir(_REPO)   # กลับรากโปรเจกต์จริงเพื่อตรวจ guard ของ secret กับไฟล์จริง
 
 # ยังกัน secret อยู่ (ไม่ถูก ignore rules แซง) — เช็คว่าไม่มี "ตำแหน่งที่เจอ" ชี้ไปที่ไฟล์ secret
 # (ข้อความที่ "พูดถึงชื่อ" keys.json เช่นใน .gitignore ยังปรากฏได้ตามปกติ)

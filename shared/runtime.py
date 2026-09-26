@@ -23,6 +23,9 @@ soonai ตรง ๆ (ไม่ผ่าน facade) — ตอนย้ายโ
 3) ชื่อที่เป็นของโมดูลพี่น้องจริง ๆ (เช่น iter_project_files ของ project.py)
    ให้ import โมดูลนั้นตรง ๆ ไม่ต้องผ่าน runtime
 """
+import os
+import shutil
+import sys
 import threading
 from pathlib import Path
 
@@ -30,8 +33,85 @@ from pathlib import Path
 _THIS_FILE = Path(__file__).resolve()
 SHARED_DIR = _THIS_FILE.parent          # shared/
 BASE_DIR = SHARED_DIR.parent            # รากโปรเจกต์ (ที่มี soonai.py)
-KEYS_FILE = SHARED_DIR / "keys.json"
-CONFIG_FILE = SHARED_DIR / "config.json"
+
+
+def data_dir():
+    """โฟลเดอร์ข้อมูลระดับเครื่อง — config/key/team/session อยู่ที่นี่ ไม่ปนกับโค้ด
+
+    แต่เดิม config.json/keys.json/team.json อยู่ใน shared/ ซึ่งเป็น source tree ที่มี
+    git track ผลคือ (1) ค่าตั้งส่วนตัวถูก commit (2) ตัวติดตั้งคัดลอก config ของผู้พัฒนา
+    ไปให้ผู้ใช้ทุกคน (3) config ในเครื่องกับใน repo เป็นคนละไฟล์กัน จึงย้ายมาไว้ระดับเครื่อง
+    """
+    try:
+        if os.name == "nt":
+            base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+            return Path(base) / "SoonAI"
+        return Path.home() / ".soonai"
+    except Exception:
+        return BASE_DIR
+
+
+DATA_DIR = data_dir()
+CONFIG_FILE = DATA_DIR / "config.json"
+KEYS_FILE = DATA_DIR / "keys.json"
+TEAM_FILE = DATA_DIR / "team.json"
+
+# ค่าเริ่มต้นที่มากับโปรเจกต์ (อ่านอย่างเดียว ไม่มีค่าส่วนตัว) กับตำแหน่งเดิมก่อนย้าย
+CONFIG_DEFAULT_FILE = SHARED_DIR / "config.default.json"
+TEAM_DEFAULT_FILE = SHARED_DIR / "team.default.json"
+LEGACY_CONFIG_FILE = SHARED_DIR / "config.json"
+LEGACY_KEYS_FILE = SHARED_DIR / "keys.json"
+LEGACY_TEAM_FILE = SHARED_DIR / "team.json"
+LEGACY_FILES = ((CONFIG_FILE, LEGACY_CONFIG_FILE, CONFIG_DEFAULT_FILE),
+                (KEYS_FILE, LEGACY_KEYS_FILE, None),
+                (TEAM_FILE, LEGACY_TEAM_FILE, TEAM_DEFAULT_FILE))
+
+_USER_FILES_MIGRATED = {"done": False}
+
+
+def ensure_user_files():
+    """ย้าย config/keys/team จากร่างเดิมใน source tree มา DATA_DIR (ไม่ทับของที่มีอยู่)
+
+    ลำดับที่ใช้: DATA_DIR (ของเครื่องนี้) > shared/ ตำแหน่งเดิม (รุ่นก่อน)
+    > DATA_DIR/shared/ (เครื่องที่ลงผ่าน installer) > *.default.json
+    idempotent — คืนจำนวนไฟล์ที่สร้าง/ย้าย (0 = ไม่มีอะไรต้องทำ)
+    """
+    if _USER_FILES_MIGRATED["done"]:
+        return 0
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return 0        # ยังไม่ตั้งธงสำเร็จ — ให้รอบหน้าลองใหม่ได้
+    _USER_FILES_MIGRATED["done"] = True
+    made = 0
+    for target, legacy, default in LEGACY_FILES:
+        try:
+            if target.exists():
+                continue
+            # DATA_DIR/shared/ = ร่างเดิมของเครื่องที่ลงผ่าน installer (บน Windows
+            # โฟลเดอร์ติดตั้งคือ DATA_DIR เอง) — คนละที่กับ shared/ ของ source tree
+            # ที่กำลังรัน ถ้าไม่มองที่นี่ key ของผู้ใช้ที่ลงไว้จะหาไม่เจอ
+            installed_legacy = target.parent / "shared" / target.name
+            source = None
+            for cand in (legacy, installed_legacy, default):
+                if cand is not None and cand.is_file() and cand != target:
+                    source = cand
+                    break
+            if source is None:
+                continue
+            shutil.copyfile(str(source), str(target))
+            if target.name == "keys.json":
+                try:
+                    os.chmod(target, 0o600)   # ไฟล์ key ต้องอ่านได้เฉพาะเจ้าของ
+                except OSError:
+                    pass
+            made += 1
+        except Exception as e:
+            # เงียบไว้ = ผู้ใช้นึกว่าค่าตั้ง/key ยังอยู่ ทั้งที่ไฟล์ปลายทางไม่เคยถูกสร้าง
+            print(f"[soonai] ย้าย {target.name} มา {target} ไม่ได้: "
+                  f"{e.__class__.__name__}: {e}", file=sys.stderr)
+            continue
+    return made
 
 # ── state container (ค่าเริ่มต้นตรงกับ soonai.py ปัจจุบัน) ───────────────────
 _MCP_DEFS_CACHE = {"defs": None}

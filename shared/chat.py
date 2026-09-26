@@ -576,7 +576,8 @@ def handle_command(st, q):
         else:
             picked = R._apply_ui_theme(arg)
         if not picked:
-            R.console.print("[yellow]ใช้: /theme luxe|aurora|sunset|classic[/yellow]")
+            R.console.print("[yellow]ใช้: /theme " + "|".join(R.theme_names())
+                          + "[/yellow]")
         else:
             R._COSMOS_MODE["on"] = None   # ให้ค่า animation อ่านใหม่ตาม config
             R.console.print(f"[green]ธีม UI = {picked}[/green]"

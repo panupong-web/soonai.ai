@@ -11,6 +11,7 @@
 import os
 import re
 import json
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -34,8 +35,10 @@ def _sensitive_shell_hit(cmd):
     for name in _SHELL_SENSITIVE_NAMES:
         if name in low:
             return name
-    # config.json กว้างเกินกว่าจะกันด้วยชื่อเดี่ยว ๆ — ต้องมี shared อยู่ด้วย
-    if "config.json" in low and "shared" in low:
+    # config.json กว้างเกินกว่าจะกันด้วยชื่อเดี่ยว ๆ — ต้องมีชื่อโฟลเดอร์โปรแกรมกำกับ
+    # (เดิมอยู่ใน shared/ · ตั้งแต่ย้ายไป DATA_DIR จะอยู่ใต้ SoonAI/ หรือ ~/.soonai)
+    if "config.json" in low and any(
+            m in low for m in ("shared", "soonai", "localappdata", "appdata")):
         return "config.json"
     if "sessions/" in low and any(x in low for x in ("soonai", "localappdata", "appdata")):
         return "sessions/"
@@ -60,6 +63,63 @@ _SAFE_SHELL_RES = (
     r"^(dir|ls|pwd|echo)\b",
 )
 _SHELL_METACHARS = "|;&><`$\n\r%!()"
+# ── ตรวจพาธของอาร์กิวเมนต์ ──────────────────────────────────────────────────
+# allowlist ดูแค่ "ขึ้นต้นด้วยคำสั่งอะไร" จึงกัน argument injection ไม่ได้ เช่น
+#   python -m json.tool C:\Users\x\.aws\credentials  → อ่านไฟล์นอกโฟลเดอร์งาน
+#   git diff --output=C:\Users\x\out.txt             → เขียนทับไฟล์นอกโฟลเดอร์งาน
+#   dir C:\Users\x /s /b                             → ไล่ดูทั้งดิสก์
+# จึงต้องตรวจเพิ่มว่าไม่มีพาธ absolute/UNC/.. และ token ที่เหมือนพาธทุกตัว
+# resolve แล้วอยู่ใต้โฟลเดอร์งานจริง
+_ABS_PATH_RE = re.compile(r"[A-Za-z]:[\\/]|\\\\")
+_DOTDOT_RE = re.compile(r"(?:^|[\s\"'=])\.\.(?:$|[\s\"'\\/])")
+_WIN_SWITCH_RE = re.compile(r"/[A-Za-z0-9?]+$")
+
+
+def _path_like_tokens(command):
+    """แยก token ที่ "ดูเหมือนพาธ" (คืน None ถ้า quote ไม่ครบจนตีความไม่ได้)"""
+    try:
+        tokens = shlex.split(str(command), posix=(os.name != "nt"))
+    except ValueError:
+        return None
+    out = []
+    for tk in tokens:
+        if not tk or tk.startswith("-"):
+            continue                       # switch เช่น --stat, -q, --output=... (ตรวจทั้งเส้นแล้ว)
+        if os.name == "nt" and _WIN_SWITCH_RE.fullmatch(tk):
+            continue                       # switch แบบ Windows เช่น dir /s /b
+        if "/" not in tk and "\\" not in tk:
+            continue                       # ชื่อธรรมดา ไม่ใช่พาธ
+        if tk.startswith("/") and tk.count("/") == 1:
+            continue                       # /s บน Windows ไม่ใช่พาธ absolute
+        out.append(tk)
+    return out
+
+
+def _safe_shell_paths_ok(command):
+    """ทุกพาธในคำสั่งต้องอยู่ในโฟลเดอร์งาน (False = หลุดขอบเขต หรือตีความไม่ได้)"""
+    c = str(command or "")
+    if _ABS_PATH_RE.search(c) or _DOTDOT_RE.search(c):
+        return False
+    tokens = _path_like_tokens(c)
+    if tokens is None:
+        return False
+    try:
+        root = Path(R.workspace_root())
+    except Exception:
+        root = Path.cwd()                  # seam ยังไม่ผูก — ตรงกับ cwd ที่ run_command_safe ใช้
+    try:
+        root = root.resolve()
+    except Exception:
+        return False
+    for tk in tokens:
+        try:
+            if not Path(tk).expanduser().resolve().is_relative_to(root):
+                return False
+        except Exception:
+            return False
+    return True
+
+
 def _shell_mode():
     """โหมด shell ของ agent — override เฉพาะเซสชัน > SOONAI_ALLOW_AGENT_SHELL=1 (ของเดิม) ถือเป็น 'on'
     > config agent.shell > 'off'"""
@@ -92,11 +152,14 @@ def set_shell_mode(mode, cfg=None, persist=True):
                                f"จำโหมด shell '{m}' ลง config ไม่ได้ — ใช้เฉพาะเซสชันนี้")
     return m
 def _safe_shell_ok(command):
-    """คำสั่งนี้รันได้ในโหมด safe ไหม — ต้องเป็นคำสั่งเดียว ไม่มี pipe/ตัวเชื่อม/redirect/ตัวแปร"""
+    """คำสั่งนี้รันได้ในโหมด safe ไหม — ต้องเป็นคำสั่งเดียว ไม่มี pipe/ตัวเชื่อม/redirect/ตัวแปร
+    และทุกพาธที่อ้างต้องอยู่ในโฟลเดอร์งาน (กัน argument injection)"""
     c = str(command or "").strip()
     if not c or len(c) > 300:
         return False
     if "&&" in c or "||" in c or any(ch in c for ch in _SHELL_METACHARS):
+        return False
+    if not _safe_shell_paths_ok(c):
         return False
     low = re.sub(r"\s+", " ", c).strip().lower()
     if low in _detected_test_commands():

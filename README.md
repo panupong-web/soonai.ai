@@ -62,6 +62,19 @@ On macOS/Linux:
 
 The installer does not copy secrets or session data from the source tree.
 
+## User data
+
+Settings, API keys, team config, sessions and logs live outside the source
+tree, in a per-machine data directory:
+
+- Windows: `%LOCALAPPDATA%\SoonAI`
+- macOS/Linux: `~/.soonai`
+
+`soonai status` prints the exact paths. On first run after upgrading, files
+from the old in-tree location (`shared/config.json`, `shared/keys.json`,
+`shared/team.json`) are copied there automatically; nothing is deleted and an
+existing file is never overwritten.
+
 ## Project hooks
 
 Optional tool hooks can run before or after a tool action. Create
@@ -81,6 +94,14 @@ Optional tool hooks can run before or after a tool action. Create
 Hooks are restricted to SoonAI's safe-shell allowlist and have a 30-second
 timeout. A failing `before_tool` hook blocks the tool; a failing `after_tool`
 hook reports an error. Hooks are never copied by the installer.
+
+Because `hooks.json` comes from the repository, it can be changed by anyone
+who can push to it. SoonAI therefore lists every command the file declares and
+asks for approval the first time it is used, and remembers the answer per
+project in the data directory. Editing the file invalidates the approval and
+prompts again. When stdin is not a terminal (CI, scripts) hooks are refused
+rather than run. If the agent's shell mode is `off`, hooks are skipped with a
+notice.
 # ธีม UI
 
 เมื่อเปิด SoonAI ครั้งแรกใน terminal แบบโต้ตอบ โปรแกรมจะแสดงหน้าต่างให้เลือกธีม
@@ -90,5 +111,9 @@ hook reports an error. Hooks are never copied by the installer.
 - `aurora` — เขียวมิ้นต์/น้ำเงิน
 - `sunset` — ส้มอุ่น/ชมพู
 - `classic` — นีออนฟ้า/ชมพู
+- `ocean` — น้ำเงินทะเล/ฟ้า
+- `forest` — เขียวธรรมชาติ
+- `cyberpunk` — เหลือง/แดงนีออน
+- `mono` — ขาวดำมินิมอล
 
 เปลี่ยนธีมภายหลังได้ด้วยคำสั่ง `/theme` หรือระบุชื่อโดยตรง เช่น `/theme aurora`

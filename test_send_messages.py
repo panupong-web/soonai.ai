@@ -138,12 +138,20 @@ def t_stream_error_chunk():
 
 
 def t_stream_empty():
-    fx = Fixture([Resp(payload={}, sse=["data: [DONE]"])])
+    fx = Fixture([Resp(payload={}, sse=["data: [DONE]"]),
+                  Resp(payload=oai_json("คำตอบจาก non-stream fallback"))])
+    got = []
     try:
-        run_send(fx, stream=True)
-        check("stream: ว่างเปล่าต้อง raise", False, "ไม่ raise")
+        out = run_send(fx, stream=True, on_chunk=got.append)
+        check("stream: ว่าง retry non-stream แล้วได้คำตอบ",
+              out == "คำตอบจาก non-stream fallback", out)
+        check("stream: empty fallback ยิงซ้ำแบบ non-stream ครั้งเดียว",
+              len(fx.requests) == 2
+              and fx.requests[0]["stream"] is True
+              and fx.requests[1]["stream"] is False, fx.requests)
+        check("stream: fallback ส่ง chunk ให้ UI", got == ["คำตอบจาก non-stream fallback"], got)
     except RuntimeError as e:
-        check("stream: ว่างเปล่าต้อง raise", "สตรีมว่าง" in str(e), str(e))
+        check("stream: ว่าง retry non-stream แล้วได้คำตอบ", False, str(e))
 
 
 def t_stream_length_continue():

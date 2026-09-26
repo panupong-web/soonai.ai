@@ -29,7 +29,6 @@ exclude = [
     "__pycache__",
     "golden",
     "sessions",
-    "shared/skills.off",       # skill ที่ปิดไว้ (ไม่ได้โหลดตอนรัน)
 ]
 
 [tool.ruff.lint]

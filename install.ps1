@@ -1,5 +1,9 @@
 # SoonAI CLI installer for Windows.
 # Installs into the current user's LocalAppData and updates the user PATH.
+#
+# โฟลเดอร์ปลายทางเป็นตำแหน่งเดียวกับ DATA_DIR ของโปรแกรม (runtime.data_dir())
+# ซึ่งเก็บ sessions/audit.log/config.json/keys.json อยู่แล้ว — ตั้งใจให้เป็นเช่นนั้น
+# installer จึงห้ามเขียนทับไฟล์ข้อมูลเหล่านั้น (ดู $excludeNames ด้านล่าง)
 [CmdletBinding()]
 param(
     [string]$TargetDir = (Join-Path $env:LOCALAPPDATA "SoonAI"),
@@ -39,6 +43,27 @@ function Assert-Success([string]$Operation) {
     }
 }
 
+# ของที่ห้ามคัดลอกตามไปยังเครื่องอื่น:
+#   keys.json/config.json/team.json/mcp.json = ความลับกับค่าส่วนตัวของผู้พัฒนา
+#     (ของจริงอยู่ที่ DATA_DIR ซึ่งบน Windows คือโฟลเดอร์ปลายทางเดียวกันนี้ — ไม่ต้องมีร่างซ้ำใน shared/)
+#   .machine_id/.models_cache.json/__pycache__ = ของที่เครื่องปลายทางสร้างเองได้
+$excludeNames = @("keys.json", "config.json", "team.json", "mcp.json",
+                  ".machine_id", ".models_cache.json")
+
+function Copy-TreeFiltered([string]$From, [string]$To) {
+    New-Item -ItemType Directory -Force -Path $To | Out-Null
+    $fromFull = [System.IO.Path]::GetFullPath($From).TrimEnd('\')
+    Get-ChildItem -LiteralPath $fromFull -Recurse -Force -File | ForEach-Object {
+        $relative = $_.FullName.Substring($fromFull.Length).TrimStart('\').Replace('/', '\')
+        if ($excludeNames -contains $_.Name) { return }
+        # เทียบ __pycache__ เป็นชื่อโฟลเดอร์ตรง ๆ (ไม่ใช้ regex — หนีบ backslash ใน PowerShell สะดุดง่าย)
+        if ($relative.StartsWith('__pycache__\') -or $relative.Contains('\__pycache__\')) { return }
+        $destination = Join-Path $To $relative
+        New-Item -ItemType Directory -Force -Path (Split-Path $destination -Parent) | Out-Null
+        Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
+    }
+}
+
 if (-not $Install) {
     if (-not (Test-Path -LiteralPath $target)) {
         Write-Host "[ERROR] Install directory does not exist: $target"
@@ -65,15 +90,11 @@ Assert-Success "pip upgrade"
 & $venvPython -m pip install -r (Join-Path $sourceDir "requirements.txt")
 Assert-Success "dependency installation"
 
-$files = @("soonai.py", "soonai_custom.py", "requirements.txt", "soonai.spec", "README.md")
+$files = @("soonai.py", "requirements.txt", "soonai.spec", "README.md")
 foreach ($file in $files) {
     Copy-Item -LiteralPath (Join-Path $sourceDir $file) -Destination $target -Force
 }
-foreach ($directory in @("shared", "apps", "packages")) {
-    $destination = Join-Path $target $directory
-    New-Item -ItemType Directory -Force -Path $destination | Out-Null
-    Copy-Item -Path (Join-Path $sourceDir "$directory\*") -Destination $destination -Recurse -Force
-}
+Copy-TreeFiltered (Join-Path $sourceDir "shared") (Join-Path $target "shared")
 
 $launcher = Join-Path $target "soonai.bat"
 @"

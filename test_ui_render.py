@@ -7,6 +7,7 @@
    และ import โมดูลพี่น้อง (shell/usage/providers/ui_theme) ตรง ๆ
 3) การ patch จากภายนอก (`S.X = ...`) ส่งผลถึงโค้ดภายใน ui_render จริง
 4) พฤติกรรมเดิมยังอยู่: neo_table ปลอดภัยเมื่อ NO_COLOR · INPUT_STYLE มาจาก palette
+5) ป้าย RGB เคารพ NO_COLOR/SOONAI_NO_ANIM · ข้อความช่วย /theme ไม่ตกยุคเวลาเพิ่มธีม
 
 ไม่แตะไฟล์/เน็ต
 """
@@ -167,6 +168,50 @@ finally:
         os.environ.pop("NO_COLOR", None)
     else:
         os.environ["NO_COLOR"] = _orig_nc
+
+# ---------- 5) ป้าย RGB เคารพ NO_COLOR / SOONAI_NO_ANIM ----------
+def _label_width(segments):
+    return sum(len(txt) for _, txt in segments)
+
+
+_saved_env = {k: os.environ.get(k) for k in ("NO_COLOR", "SOONAI_NO_ANIM")}
+
+
+def _with_env(**kw):
+    for k in ("NO_COLOR", "SOONAI_NO_ANIM"):
+        if kw.get(k):
+            os.environ[k] = "1"
+        else:
+            os.environ.pop(k, None)
+
+
+try:
+    _with_env()
+    check("env สะอาด: ป้าย RGB เปิด", UR._rgb_label_allowed() is True)
+    _on = UR._input_rgb_label(7, 40, text="soonai", rgb=True)
+    _off = UR._input_rgb_label(7, 40, text="soonai", rgb=False)
+    check("rgb=True ไล่สีรายตัวอักษร", sum(1 for st, _ in _on if st) == len("soonai"), _on)
+    check("rgb=False ไม่มีสีเลย", not any(st for st, _ in _off), _off)
+    check("กว้างเท่าเดิมทั้งโหมดสีและไม่สี (layout ไม่เลื่อน)",
+          _label_width(_on) == _label_width(_off),
+          (_label_width(_on), _label_width(_off)))
+
+    for _k in ("NO_COLOR", "SOONAI_NO_ANIM"):
+        _with_env(**{_k: "1"})
+        check(f"{_k}: ปิดป้าย RGB", UR._rgb_label_allowed() is False)
+finally:
+    for _k, _v in _saved_env.items():
+        if _v is None:
+            os.environ.pop(_k, None)
+        else:
+            os.environ[_k] = _v
+
+# ---------- 6) รายชื่อธีมในข้อความช่วยไม่ตกยุค ----------
+import ui_theme as UT  # noqa: E402
+
+_hint = dict(UR.SLASH_COMMANDS).get("/theme", "")
+_missing_theme = [n for n in UT.theme_names() if n not in _hint]
+check("/theme: บอกชื่อธีมครบทุกธีมที่มีจริง", not _missing_theme, _missing_theme)
 
 print()
 if FAILS:

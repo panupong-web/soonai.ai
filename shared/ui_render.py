@@ -37,6 +37,9 @@ except Exception:  # pragma: no cover - ธีมเป็นของเสร�
     _UI = None
     _UI_OK = False
 
+# รายการธีมในข้อความช่วย — อ่านจาก ui_theme ตรง ๆ เพื่อไม่ตกยุคเวลาเพิ่มธีมใหม่
+_THEME_HINT = ("สลับธีม UI: " + " | ".join(_UI.theme_names())) if _UI_OK else "สลับธีม UI"
+
 
 LOGO = [
     " ███████╗ ██████╗  ██████╗ ███╗   ██╗ █████╗ ██╗",
@@ -467,7 +470,7 @@ SLASH_COMMANDS = [
                  "ความจำ preference: /skills learning · /skills reset [ชื่อ]"),
     ("/skill", "พิมพ์คำค้นหาสกิล หรือให้ AI หาสกิลที่เข้ากับงานนี้"),
     ("/effort", "ตั้ง reasoning effort (low/medium/high/off)"),
-    ("/theme", "สลับธีม UI: luxe (เรียบหรู) / classic (นีออนเดิม)"),
+    ("/theme", _THEME_HINT),
     ("/smart", "เปิด/ปิดโหมดฉลาดอัตโนมัติ"),
     ("/boost", "เปิด/ปิดเกลาพร้อมอัตโนมัติ (/boost th|en|off)"),
     ("/shell", "โหมด shell ของ agent: off/safe/on"),
@@ -550,6 +553,16 @@ def _cosmos_on():
                     on = False
         R._COSMOS_MODE["on"] = on
     return R._COSMOS_MODE["on"]
+
+
+def _rgb_label_allowed():
+    """ป้ายชื่อ RGB ใต้ช่องพิมพ์: ยอมให้เล่นสี/ขยับได้ไหม
+
+    แยกจาก _cosmos_on() เพราะป้ายนี้ตั้งใจให้ขยับเองแม้กรอบจักรวาลอยู่โหมดนิ่ง
+    แต่ NO_COLOR / SOONAI_NO_ANIM เป็นสัญญาว่า terminal นี้ไม่เอาสี/ไม่เอาอนิเมชัน
+    เลย จึงต้องชนะการตั้งค่าอื่นเสมอ (cache ไม่ต้องมี — อ่าน env สองตัวถูกมาก)
+    """
+    return not (os.environ.get("NO_COLOR") or os.environ.get("SOONAI_NO_ANIM"))
 
 
 def _cosmos_hash(n):
@@ -650,10 +663,16 @@ def _input_style():
 INPUT_STYLE = _input_style()
 
 
-def _input_rgb_label(frame, width, text="soonai"):
-    """RGB rainbow label under the input box, animated independently."""
+def _input_rgb_label(frame, width, text="soonai", rgb=True):
+    """RGB rainbow label under the input box, animated independently.
+
+    rgb=False = สี default (โหมด NO_COLOR/SOONAI_NO_ANIM) — ความกว้างเท่าเดิม
+    เพราะยังเว้น pad เท่ากัน แค่ไม่ไล่สีรายตัวอักษร
+    """
     pad = max(0, (int(width) - len(text)) // 2)
     out = [("", " " * pad)] if pad else []
+    if not rgb:
+        return out + [("", text)]
     for i, ch in enumerate(text):
         hue = (float(frame) * 0.018 + i / max(1, len(text))) % 1.0
         out.append((rgb_hex(hue), ch))
@@ -774,7 +793,13 @@ def build_input_bar(history=None, status=""):
         return state["frame"]
 
     def _rgb_label_tick():
-        """เริ่มลูปสีของป้ายชื่อแม้กรอบจักรวาลจะอยู่โหมดนิ่ง"""
+        """เริ่มลูปสีของป้ายชื่อแม้กรอบจักรวาลจะอยู่โหมดนิ่ง (โหมดห้ามสี/ห้ามขยับคืน 0)
+
+        ใช้ state["anim_on"] ตัวเดียวกับ _tick() — ถ้าแยกธง ลูป invalidate
+        จะถูกสร้างสองอันแล้วสั่งวาดจอซ้ำซ้อนโดยไม่จำเป็น
+        """
+        if not _rgb_label_allowed():
+            return 0
         if not state["anim_on"]:
             state["anim_on"] = True
             try:
@@ -819,9 +844,8 @@ def build_input_bar(history=None, status=""):
                 + [(_cosmos_nebula(n + 1, f), "┘")])
 
     def _label():
-        f = _rgb_label_tick()
         w = _cols()
-        return _input_rgb_label(f, w)
+        return _input_rgb_label(_rgb_label_tick(), w, rgb=_rgb_label_allowed())
 
     bar = "class:input-bar"
     mid = VSplit([
@@ -869,7 +893,7 @@ def show_command_menu():
         ("/mcp", "ดู/จัดการ MCP servers (tools เสริมให้ agent)"),
         ("/skills", "ดู/ติดตั้ง skills เสริมให้ agent"),
         ("/effort", "ตั้ง reasoning effort (low/medium/high/off)"),
-        ("/theme", "สลับธีม UI: luxe (เรียบหรู) / classic (นีออนเดิม)"),
+        ("/theme", _THEME_HINT),
         ("/smart", "เปิด/ปิดย่อประวัติ+ตรวจโค้ดอัตโนมัติ"),
         ("/boost", "เลือกโหมดเกลาพร้อม (th/en/off ว่าง=เมนู)"),
         ("/sessions", "ดูบทสนทนาที่บันทึกไว้"),

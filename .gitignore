@@ -16,6 +16,11 @@ venv/
 shared/keys.json
 shared/.models_cache.json
 shared/.machine_id
+# config/team ระดับเครื่องอยู่ที่ DATA_DIR แล้ว (%LOCALAPPDATA%\SoonAI · ~/.soonai)
+# สองชื่อนี้คือตำแหน่งเดิมใน source tree — เผื่อเครื่องใดยังมีร่างเก่าค้างอยู่
+# (ensure_user_files() จะย้ายให้เอง) ห้าม commit เพราะเป็นค่าส่วนตัวของแต่ละเครื่อง
+shared/config.json
+shared/team.json
 sessions/*.json
 debug_last.json
 crash.log

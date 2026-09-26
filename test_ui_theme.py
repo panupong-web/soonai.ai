@@ -68,15 +68,31 @@ _r, _g, _b = int(_accent[1:3], 16), int(_accent[3:5], 16), int(_accent[5:7], 16)
 _ansi = f"38;2;{_r};{_g};{_b}"
 check("luxe: [cyan] ถูก remap เป็น accent",
       _ansi in _render("[cyan]X[/]", U.rich_theme()))
-check("classic: [cyan] ไม่ถูก remap (คงสี cyan เดิม)",
-      _ansi not in _render("[cyan]X[/]", U.rich_theme(classic=True)))
+
+
+def _ansi_of(hex_color):
+    return "38;2;%d;%d;%d" % tuple(int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+
+
+# classic เคยได้ Theme({}) เปล่า ๆ = palette ใน THEMES["classic"] ไม่ถูกใช้เลย
+# ([cyan] ทั้งโปรเจกต์กลับไปเป็นสี default ของ Rich) ทั้งที่ README โฆษณาว่า "นีออนฟ้า/ชมพู"
+_classic_accent = U.THEMES["classic"]["accent"]
+check("classic: [cyan] ถูก remap เป็น accent ของ classic",
+      _ansi_of(_classic_accent) in _render("[cyan]X[/]", U.console_theme("classic")))
+check("classic: [magenta] ถูก remap เป็น accent2 ของ classic",
+      _ansi_of(U.THEMES["classic"]["accent2"]) in _render("[magenta]X[/]",
+                                                          U.console_theme("classic")))
+check("ทุกธีมมี palette ต่างกันจริง (ไม่ตกกลับมาใช้ luxe)",
+      len({U.THEMES[n]["accent"] for n in U.THEMES}) == len(U.THEMES))
+U.apply_theme("luxe")   # console_theme() แก้ PALETTE ระดับโมดูล — คืนค่าก่อนเช็กข้อถัดไป
 
 # ---------- 3) soonai ใช้ธีม
 
 import soonai as S  # noqa: E402
 
 check("soonai โหลด ui_theme", S._UI_OK is True)
-check("_ui_theme_name คืนค่าในชุดที่รู้จัก", S._ui_theme_name() in ("luxe", "classic"))
+check("_ui_theme_name คืนค่าในชุดที่รู้จัก", S._ui_theme_name() in U.theme_names(),
+      S._ui_theme_name())
 check("neo_table ใช้ขอบจาง", "faint" in str(S.neo_table("t").border_style) or True)
 check("INPUT_STYLE มาจาก palette",
       S.INPUT_STYLE.get("prompt-marker", "").split()[0].lower() == _accent.lower(),
