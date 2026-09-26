@@ -78,7 +78,14 @@ except Exception:
     _usage_mod = None
 try:
     import shell as _shell_mod
-    from shell import SHELL_MODES, _SAFE_SHELL_RES, _SHELL_METACHARS, _shell_mode, set_shell_mode, _safe_shell_ok, _safe_env, _KillTree, run_command_safe, _project_test_commands, _detected_test_commands, detect_test_command, run_tests_command, _agent_shell_enabled, _compile_deny, _DENY_RES, _DENY_SYSROOTS, _rm_rf_root, sandbox_deny, _SHELL_SENSITIVE_NAMES, _sensitive_shell_hit, _MCP_WRITE_HINTS  # noqa: F401
+    from shell import (SHELL_MODES, _SAFE_SHELL_RES, _SHELL_METACHARS, _shell_mode,
+                       set_shell_mode, _path_like_tokens, _safe_shell_paths_ok,
+                       _safe_shell_ok, _safe_env, _KillTree, run_command_safe,
+                       _project_test_commands, _detected_test_commands,
+                       detect_test_command, run_tests_command, _agent_shell_enabled,
+                       _compile_deny, _DENY_RES, _DENY_SYSROOTS, _rm_rf_root,
+                       sandbox_deny, _SHELL_SENSITIVE_NAMES, _sensitive_shell_hit,
+                       _MCP_WRITE_HINTS)  # noqa: F401
 except Exception:
     _shell_mod = None
 
@@ -235,8 +242,8 @@ def _ui_theme_name():
     """ชื่อธีม UI จาก config (ค่าเริ่มต้น 'luxe' · 'classic' = นีออนเดิม)
     อ่านไฟล์ตรง ๆ เพราะถูกเรียกตอนสร้าง console (ก่อน load_config พร้อม)"""
     try:
-        raw = json.loads((Path(__file__).parent / "shared" / "config.json")
-                         .read_text(encoding="utf-8"))
+        import runtime as _runtime
+        raw = json.loads(Path(_runtime.CONFIG_FILE).read_text(encoding="utf-8"))
         return str((raw.get("ui") or {}).get("theme") or "luxe").strip().lower()
     except Exception:
         return "luxe"
@@ -247,9 +254,10 @@ def _apply_ui_theme(name):
     คืนชื่อธีมที่ใช้ หรือ '' ถ้าไม่ถูกต้อง"""
     global console
     name = str(name or "").strip().lower()
-    if name not in ("luxe", "classic", "เรียบหรู", "นีออน"):
+    aliases = {"เรียบหรู": "luxe", "นีออน": "classic"}
+    name = aliases.get(name, name)
+    if name not in theme_names():
         return ""
-    name = "classic" if name in ("classic", "นีออน") else "luxe"
     try:
         cfg = load_config()
         cfg.setdefault("ui", {})["theme"] = name
@@ -262,6 +270,28 @@ def _apply_ui_theme(name):
     except Exception:
         pass
     return name
+
+
+def theme_names():
+    """ชื่อ preset ธีม UI ที่ใช้งานได้"""
+    return _UI.theme_names() if _UI_OK else ("luxe", "classic")
+
+
+def _theme_needs_onboarding(cfg):
+    ui = (cfg or {}).get("ui")
+    selected = ui.get("theme") if isinstance(ui, dict) else None
+    return not selected or str(selected).strip().lower() not in theme_names()
+
+
+def choose_ui_theme(initial=False):
+    """ให้ผู้ใช้เลือกธีมจาก preset ที่ติดตั้งอยู่"""
+    names = list(theme_names())
+    if not initial and "classic" in names:
+        names.remove("classic")
+        names.insert(0, "classic")
+    options = [(name, name + (" — default" if name == "luxe" else "")) for name in names]
+    picked = fuzzy_pick("เลือกธีม UI:", options)
+    return _apply_ui_theme(picked) if picked else ""
 
 
 def _computer_mod():
@@ -328,26 +358,23 @@ console = Console(legacy_windows=False,
 
 # path พื้นฐาน: นิยามที่ runtime (ให้โมดูลย่อย import ได้เอง ไม่ต้อง bind)
 # แล้วดึงกลับมาใช้ชื่อเดิม — ทุกโมดูลจึงชี้ที่ object เดียวกัน
-from runtime import BASE_DIR, CONFIG_FILE, KEYS_FILE, SHARED_DIR  # noqa: E402,F401
+from runtime import (BASE_DIR, CONFIG_FILE, DATA_DIR, KEYS_FILE, SHARED_DIR,
+                     TEAM_FILE)  # noqa: E402,F401
 
 
 def _data_dir():
     """โฟลเดอร์ข้อมูลระดับเครื่อง (sessions อยู่เครื่องใครเครื่องมัน ไม่ปนกับโปรเจค)"""
     try:
-        if os.name == "nt":
-            base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-            return Path(base) / "SoonAI"
-        return Path.home() / ".soonai"
+        import runtime as _runtime
+        return _runtime.data_dir()
     except Exception:
         return BASE_DIR
 
 
-DATA_DIR = _data_dir()
 # ไฟล์ความเคยชินของสกิล (อยู่ที่นี่เพราะพึ่ง DATA_DIR) — โมดูล skills อ่านผ่าน bind
 SKILL_STATE_FILE = (Path(os.environ["SOONAI_SKILL_STATE"]) if os.environ.get("SOONAI_SKILL_STATE")
                     else DATA_DIR / "skills_state.json")   # ทับด้วย env ได้ (ทดสอบ/ซิงก์ความจำ)
 SESSIONS_DIR = DATA_DIR / "sessions"
-TEAM_FILE = SHARED_DIR / "team.json"
 MAX_STAFF = 5
 VERSION = "2.32.0"
 DEFAULT_SYSTEM = "คุณคือผู้ช่วย AI ภาคภาษาไทย ตอบกระชับ ชัดเจน"
@@ -1318,7 +1345,9 @@ def _norm_path_str(p):
 def _sensitive_paths():
     """ไฟล์ต้องห้าม agent แตะ: keys/config/MCP/ทีม + memory + audit + log ที่มีข้อมูลดิบ"""
     out = []
-    for p in (KEYS_FILE, CONFIG_FILE, SHARED_DIR / "mcp.json", SHARED_DIR / "team.json",
+    for p in (KEYS_FILE, CONFIG_FILE, TEAM_FILE,
+              SHARED_DIR / "keys.json", SHARED_DIR / "config.json",
+              SHARED_DIR / "mcp.json", SHARED_DIR / "team.json",
               SHARED_DIR / ".machine_id", SHARED_DIR / ".models_cache.json",
               DATA_DIR / "memory.json", DATA_DIR / "computer" / "audit.log",
               BASE_DIR / "debug_last.json", BASE_DIR / "crash.log"):
@@ -1991,6 +2020,8 @@ def run_tool(name, args):
             except Exception as e:
                 return f"ERROR: regex ไม่ถูกต้อง: {e}"
             root = _resolve_tool_path(args.get("path") or ".")
+            if outside_workspace(root):
+                return f"ERROR: path outside workspace: {root}"
             targets = ([root] if root.is_file()
                        else iter_project_files(root) if root.is_dir() else [])
             hits = []
@@ -2123,10 +2154,14 @@ def run_tool(name, args):
             except Exception:
                 pass
             root = _resolve_tool_path((args or {}).get("path") or ".")
+            if outside_workspace(root):
+                return f"ERROR: path outside workspace: {root}"
             return outline_text(root, max_files=max_files)
         if name == "glob":
             import fnmatch
             root = _resolve_tool_path(args.get("path") or ".")
+            if outside_workspace(root):
+                return f"ERROR: path outside workspace: {root}"
             pat = str(args.get("pattern") or "**/*.py").replace("\\", "/")
             short = pat[3:] if pat.startswith("**/") else pat
             try:
@@ -2443,6 +2478,8 @@ _ACCESS = {"level": None}  # None=ยังไม่ถาม full=ทั้ง�
 _APPROVE_LOCK = threading.Lock()  # กันพร้อมต์ขออนุญาตชนกันตอนรันทีมขนาน
 _STAFF_CTX = threading.local()  # ชื่อลูกน้องที่กำลังขออนุญาต (งานขนาน)
 _TEAM_LOCK = threading.Lock()  # กันเขียน team.json ชนกันตอนรันทีมขนาน
+_HOOK_WARNED = {"off": False}
+_HOOK_LOCK = threading.Lock()
 
 
 _TEST_CMD_CACHE = {"key": None, "cmds": ()}
@@ -2752,6 +2789,99 @@ def approve(name, desc, fargs, auto_yes):
         console.print("[dim](จำคำสั่งนี้แล้ว ครั้งต่อไปไม่ถาม)[/dim]")
         return True
     return ans == "y"
+
+
+def _hook_trust_file():
+    return Path(DATA_DIR) / "hook_trust.json"
+
+
+def _hook_digest(raw):
+    import hashlib
+    return hashlib.sha256(bytes(raw)).hexdigest()
+
+
+def _hook_trust_set(root, digest):
+    path = _hook_trust_file()
+    with _HOOK_LOCK:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        except Exception:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        data[str(Path(root).resolve())] = str(digest)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2))
+            return True
+        except Exception:
+            return False
+
+
+def _hook_is_trusted(root, digest):
+    try:
+        data = json.loads(_hook_trust_file().read_text(encoding="utf-8"))
+        return isinstance(data, dict) and data.get(str(Path(root).resolve())) == digest
+    except Exception:
+        return False
+
+
+def _run_project_hook(event, tool):
+    """Run an explicitly trusted, safe-shell project hook around an agent tool."""
+    if event not in ("before_tool", "after_tool"):
+        return False, "ERROR: project hook event ไม่ถูกต้อง"
+    if _shell_mode() == "off":
+        if not _HOOK_WARNED.get("off"):
+            _HOOK_WARNED["off"] = True
+        return True, ""
+    root = workspace_root()
+    hook_file = root / ".soonai" / "hooks.json"
+    if not hook_file.is_file():
+        return True, ""
+    try:
+        if hook_file.stat().st_size > 100_000:
+            return True, ""
+        raw = hook_file.read_bytes()
+        config = json.loads(raw.decode("utf-8"))
+    except Exception as e:
+        return False, f"ERROR: อ่าน project hooks ไม่ได้: {e}"
+    if not isinstance(config, dict):
+        return False, "ERROR: project hooks ต้องเป็น JSON object"
+    event_hooks = config.get(event, {})
+    if not isinstance(event_hooks, dict):
+        return False, f"ERROR: project hook {event} ต้องเป็น object"
+    command = event_hooks.get(str(tool), "")
+    if not command:
+        return True, ""
+    if not isinstance(command, str):
+        return False, "ERROR: project hook command ต้องเป็นข้อความ"
+    command = command.strip()
+    if not command:
+        return True, ""
+    if not _safe_shell_ok(command):
+        return False, "ERROR: project hook ไม่ผ่าน safe-shell"
+    digest = _hook_digest(raw)
+    if not _hook_is_trusted(root, digest):
+        if not sys.stdin.isatty():
+            return False, "ERROR: project hooks ยังไม่ได้รับอนุญาต (ยืนยันใน terminal แบบโต้ตอบก่อน)"
+        try:
+            answer = Prompt.ask("อนุญาต project hooks สำหรับ repo นี้หรือไม่?",
+                                choices=["y", "n"], default="n")
+        except (EOFError, KeyboardInterrupt):
+            return False, "ERROR: project hooks ไม่ได้รับอนุญาต"
+        if answer != "y":
+            return False, "ERROR: project hooks ไม่ได้รับอนุญาต"
+        if not _hook_trust_set(root, digest):
+            return False, "ERROR: บันทึกความยินยอมของ project hooks ไม่ได้"
+    try:
+        result = run_command_safe(command, timeout=600)
+    except Exception as e:
+        return False, f"ERROR: project hook ทำงานไม่สำเร็จ: {e}"
+    if result.get("timed_out"):
+        return False, "ERROR: project hook หมดเวลา"
+    if result.get("code") != 0:
+        return False, f"ERROR: project hook จบด้วย exit code {result.get('code')}"
+    return True, ""
 
 
 def _is_tools_unsupported(resp):
@@ -3620,7 +3750,14 @@ def _agent_loop(driver, messages, auto_yes=False, on_text=None, max_steps=None,
                 if _sig and _sig in seen_feeds and str(name or "").startswith("mcp__"):
                     result = f"(ใช้ผลเดิมของ {desc} — ไม่เรียกซ้ำ)"
                 else:
-                    result = run_tool(name, fargs)
+                    hook_ok, hook_error = _run_project_hook("before_tool", name)
+                    if not hook_ok:
+                        result = hook_error
+                    else:
+                        result = run_tool(name, fargs)
+                        after_ok, after_error = _run_project_hook("after_tool", name)
+                        if not after_ok:
+                            result = f"ERROR: tool ทำงานแล้วแต่ after_tool hook ล้มเหลว: {after_error}"
                     if (_sig and str(name or "").startswith("mcp__")
                             and not str(result).startswith("ERROR:")):
                         seen_feeds[_sig] = True
@@ -4250,6 +4387,16 @@ def save_json(path, obj):
 # - ถ้าเข้ารหัสไม่ได้ (ไม่ใช่ Windows / DPAPI ล่ม) จะเก็บข้อความเดิม = ใช้ได้เหมือนเก่า
 _KEYS_ENC_PREFIX = "dpapi:"
 _KEYS_WARN = {"shown": False}
+_KEYS_PLAIN_WARN = {"shown": False}
+
+
+def _warn_plaintext_keys(keys):
+    if not keys or _KEYS_PLAIN_WARN["shown"]:
+        return False
+    _KEYS_PLAIN_WARN["shown"] = True
+    console.print("[yellow]คำเตือน: key บางรายการถูกเก็บเป็น plaintext เพราะเข้ารหัสไม่ได้ "
+                  "จำกัดสิทธิ์ไฟล์ keys.json และอย่าแชร์ไฟล์นี้[/yellow]")
+    return True
 
 
 def _dpapi_blob_call(fn_name, data):
@@ -4327,6 +4474,8 @@ def save_keys(keys):
     for k, v in (keys or {}).items():
         if isinstance(v, str) and v.strip():
             out[str(k)] = _encode_key(v.strip())
+    _warn_plaintext_keys([v for v in out.values()
+                          if not str(v).startswith(_KEYS_ENC_PREFIX)])
     save_json(KEYS_FILE, out)
     try:
         os.chmod(KEYS_FILE, 0o600)  # Windows = read-only bit, POSIX = rw เจ้าของเท่านั้น
@@ -5365,7 +5514,7 @@ def _friendly_timeout(e):
     """ข้อความไทยสำหรับ timeout/conn — ไม่โชว์ string ดิบของ urllib3 ให้ผู้ใช้อีก"""
     return ("เชื่อมต่อ/อ่านคำตอบเกินเวลา (ค่ายตอบช้าหรือเครือข่ายไม่เสถียร) — "
             "ระบบลองใหม่และสลับโมเดล/ค่ายให้แล้ว ถ้ายังเจอซ้ำ: ปรับเวลาใน soonai setup "
-            "(หน้า Timeout) หรือเพิ่ม chat_timeout (วินาที) ใน shared/config.json")
+            "(หน้า Timeout) หรือเพิ่ม chat_timeout (วินาที) ใน SoonAI config")
 
 
 def _chat_timeout(stream):

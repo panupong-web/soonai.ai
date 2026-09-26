@@ -438,6 +438,24 @@ def t_mcp_cache_invalidated_on_write():
     check("mcp: จบงานได้", out == "จบ" and err == "", (out, err))
 
 
+def t_project_hooks_wrap_tool_execution():
+    fx = Fixture([Resp(payload=oai("", [("read_file", {"path": "a.txt"})])),
+                  Resp(payload=oai("done"))])
+    hooks = []
+    original_hook = S._run_project_hook
+    S._run_project_hook = lambda event, tool: (hooks.append((event, tool)), (True, ""))[1]
+    try:
+        out, err, used, info = with_fixture(fx, lambda: S._agent_steps(
+            "openrouter", "m1", [{"role": "user", "content": "read"}],
+            0.2, auto_yes=True, max_steps=3))
+    finally:
+        S._run_project_hook = original_hook
+    check("hooks: before/after wrap tool execution",
+          hooks == [("before_tool", "read_file"), ("after_tool", "read_file")], hooks)
+    check("hooks: agent tool still completes", out == "done" and err == "" and used == 1,
+          (out, err, used))
+
+
 def t_concurrent_same_model_switch():
     import threading
     import tempfile as _tf
@@ -566,7 +584,8 @@ for fn in (t_openai_runs_tools, t_openai_denied, t_openai_unknown_tool_bails,
            t_anthropic_runs_tools, t_anthropic_force_first_and_denied,
            t_anthropic_model_switch_and_error, t_anthropic_cap,
            t_anthropic_text_fallback, t_shared_helpers,
-           t_mcp_cache_invalidated_on_write, t_concurrent_same_model_switch,
+           t_mcp_cache_invalidated_on_write, t_project_hooks_wrap_tool_execution,
+           t_concurrent_same_model_switch,
            t_agent_chat_keeps_switch):
     try:
         fn()
