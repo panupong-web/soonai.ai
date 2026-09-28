@@ -6,15 +6,68 @@ INSTALL_DIR=${SOONAI_INSTALL_DIR:-"${XDG_DATA_HOME:-$HOME/.local/share}/soonai"}
 BIN_DIR=${SOONAI_BIN_DIR:-"$HOME/.local/bin"}
 VENV_DIR="$INSTALL_DIR/.venv"
 
+install_python_if_missing() {
+    if command -v python3 >/dev/null 2>&1; then
+        PYTHON_VERSION=$(python3 -c 'import sys; print("%s.%s" % (sys.version_info[0], sys.version_info[1]))')
+        PYTHON_MAJOR=${PYTHON_VERSION%%.*}
+        PYTHON_MINOR=${PYTHON_VERSION#*.}
+        if [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -ge 12 ]; then
+            PYTHON=$(command -v python3)
+            return 0
+        fi
+    fi
+
+    if command -v python >/dev/null 2>&1; then
+        PYTHON_VERSION=$(python -c 'import sys; print("%s.%s" % (sys.version_info[0], sys.version_info[1]))')
+        PYTHON_MAJOR=${PYTHON_VERSION%%.*}
+        PYTHON_MINOR=${PYTHON_VERSION#*.}
+        if [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -ge 12 ]; then
+            PYTHON=$(command -v python)
+            return 0
+        fi
+    fi
+
+    if command -v brew >/dev/null 2>&1; then
+        echo "[INFO] Python 3.12+ not found. Installing via Homebrew..."
+        brew install python@3.12
+        if command -v python3 >/dev/null 2>&1; then
+            PYTHON=$(command -v python3)
+            return 0
+        fi
+    elif command -v apt-get >/dev/null 2>&1; then
+        echo "[INFO] Python 3.12+ not found. Installing via apt-get..."
+        if command -v sudo >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y python3.12 python3.12-venv python3-pip
+        else
+            apt-get update
+            apt-get install -y python3.12 python3.12-venv python3-pip
+        fi
+        if command -v python3.12 >/dev/null 2>&1; then
+            PYTHON=$(command -v python3.12)
+            return 0
+        fi
+    elif command -v dnf >/dev/null 2>&1; then
+        echo "[INFO] Python 3.12+ not found. Installing via dnf..."
+        if command -v sudo >/dev/null 2>&1; then
+            sudo dnf install -y python3.12 python3.12-pip
+        else
+            dnf install -y python3.12 python3.12-pip
+        fi
+        if command -v python3.12 >/dev/null 2>&1; then
+            PYTHON=$(command -v python3.12)
+            return 0
+        fi
+    fi
+
+    echo "[ERROR] Python 3.12 or newer was not found and automatic installation failed." >&2
+    exit 1
+}
+
+install_python_if_missing
+
 if [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
     PYTHON="$SCRIPT_DIR/.venv/bin/python"
-elif command -v python3 >/dev/null 2>&1; then
-    PYTHON=$(command -v python3)
-elif command -v python >/dev/null 2>&1; then
-    PYTHON=$(command -v python)
-else
-    echo "[ERROR] Python 3 was not found. Install it with your system package manager." >&2
-    exit 1
 fi
 
 PYTHON_VERSION=$("$PYTHON" -c 'import sys; print("%s.%s" % (sys.version_info[0], sys.version_info[1]))')

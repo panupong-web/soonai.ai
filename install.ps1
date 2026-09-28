@@ -15,12 +15,84 @@ $sourceDir = (Resolve-Path (Join-Path $PSScriptRoot ".")).Path
 $target = [System.IO.Path]::GetFullPath($TargetDir).TrimEnd('\')
 $venvDir = Join-Path $target ".venv"
 
+function Get-PythonCandidates {
+    $candidates = @()
+    foreach ($cmd in @("py", "python", "python3")) {
+        $resolved = Get-Command $cmd -ErrorAction SilentlyContinue
+        if ($resolved) {
+            $candidates += @{ Exe = $resolved.Source; Args = @() }
+            if ($cmd -eq "py") {
+                $candidates += @{ Exe = $resolved.Source; Args = @("-3") }
+            }
+        }
+    }
+
+    $commonRoots = @(
+        "$env:LOCALAPPDATA\Programs\Python",
+        "$env:USERPROFILE\AppData\Local\Programs\Python",
+        "$env:ProgramFiles\Python",
+        "$env:ProgramFiles(x86)\Python"
+    )
+    foreach ($root in $commonRoots) {
+        if (Test-Path $root) {
+            foreach ($exe in (Get-ChildItem -Path $root -Recurse -Filter python.exe -File -ErrorAction SilentlyContinue)) {
+                $candidates += @{ Exe = $exe.FullName; Args = @() }
+            }
+        }
+    }
+    return $candidates
+}
+
+function Get-PythonVersionMetric {
+    param([string]$Exe, [string[]]$Args)
+    try {
+        $out = & $Exe @Args -c "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $out) {
+            $text = ($out | Out-String).Trim()
+            if ($text -match '^\d+\.\d+$') {
+                return [version]$text
+            }
+        }
+    } catch {
+        return $null
+    }
+    return $null
+}
+
 function Get-PythonCommand {
-    $py = Get-Command py -ErrorAction SilentlyContinue
-    if ($py) { return @{ Exe = $py.Source; Args = @("-3") } }
-    $python = Get-Command python -ErrorAction SilentlyContinue
-    if ($python) { return @{ Exe = $python.Source; Args = @() } }
-    throw "Python 3 was not found. Install it from https://www.python.org/downloads/windows/"
+    foreach ($candidate in (Get-PythonCandidates)) {
+        $version = Get-PythonVersionMetric -Exe $candidate.Exe -Args $candidate.Args
+        if ($version) {
+            return @{ Exe = $candidate.Exe; Args = $candidate.Args; Version = $version }
+        }
+    }
+    throw "Python 3.12+ was not found. Automatic installer will try to install it."
+}
+
+function Ensure-PythonAvailable {
+    try {
+        $resolved = Get-PythonCommand
+        if ($resolved.Version -ge [version]"3.12") {
+            return $resolved
+        }
+    } catch {
+        Write-Host "[INFO] Python 3.12+ was not found on this machine."
+    }
+
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Host "[INFO] Auto-installing Python 3.12 via winget..."
+        & winget install --id Python.Python.3.12 -e --accept-source-agreements --accept-package-agreements
+        if ($LASTEXITCODE -ne 0) {
+            throw "Automatic Python install via winget failed. Please install Python 3.12+ manually."
+        }
+        $retry = Get-PythonCommand
+        if ($retry.Version -lt [version]"3.12") {
+            throw "Python was installed but version is below 3.12. Please install Python 3.12+ manually."
+        }
+        return $retry
+    }
+
+    throw "Python 3.12+ was not found and winget is unavailable. Install Python 3.12+ manually from https://www.python.org/downloads/windows/"
 }
 
 function Add-UserPath([string]$PathToAdd) {
@@ -73,7 +145,7 @@ if (-not $Install) {
     exit 0
 }
 
-$python = Get-PythonCommand
+$python = Ensure-PythonAvailable
 $pythonVersion = (& $python.Exe @($python.Args) -c "import sys; print('%s.%s' % (sys.version_info[0], sys.version_info[1]) )").Trim()
 Assert-Success "Python version check"
 if ($pythonVersion -notmatch '^3\.(1[2-9]|[2-9][0-9])$') {
