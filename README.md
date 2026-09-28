@@ -2,118 +2,98 @@
 
 SoonAI is a local CLI coding assistant for Windows, macOS, and Linux.
 
-## Install
+It helps developers run local workflows, manage project setup, connect to datacenter environments, and create custom AI model projects without requiring Python knowledge in the day-to-day flow.
 
-### Windows
+## Quick install
 
-Run `install.bat`, or from PowerShell:
+### macOS / Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/panupong-web/soonai.ai/main/install.sh | sh
+```
+
+### Windows PowerShell
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Install
+powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest https://raw.githubusercontent.com/panupong-web/soonai.ai/main/install.ps1 -OutFile $env:TEMP\soonai-install.ps1; & $env:TEMP\soonai-install.ps1 -Install"
 ```
 
-The installer creates an isolated virtual environment under
-`%LOCALAPPDATA%\SoonAI` and adds that directory to the current user's PATH.
+### Local repo install
 
-### macOS and Linux
-
-```sh
+```bash
+git clone https://github.com/panupong-web/soonai.ai.git
+cd soonai.ai
 chmod +x install.sh
 ./install.sh
-```
-
-The installer uses `~/.local/share/soonai` for application files and
-`~/.local/bin/soonai` for the launcher. Set `SOONAI_INSTALL_DIR` or
-`SOONAI_BIN_DIR` to customize these locations.
-
-The installer adds `~/.local/bin` to `~/.profile` and `~/.zprofile` when
-possible. If your shell uses another startup file, add this line manually:
-
-```sh
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-Open a new terminal after installation, then run:
-
-```text
-soonai --version
-soonai setup
-```
-
-To update an existing installation, pull the latest source and run the
-installer again. The installer reuses the existing virtual environment and
-keeps user data:
-
-```sh
-git pull origin main
 ```
 
 On Windows:
 
 ```powershell
+cd C:\path\to\soonai.ai
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Install
 ```
 
-On macOS/Linux:
+After installation, open a new terminal and run:
 
-```sh
-./install.sh
+```bash
+soonai --version
+soonai setup
 ```
 
-The installer does not copy secrets or session data from the source tree.
+## What SoonAI does
 
-## User data
+- installs Python 3.12+ automatically when needed
+- creates a local virtual environment for the app
+- adds the launcher command `soonai` to PATH
+- stores user data outside the repo, in machine-local folders
+- supports local project setup and datacenter configuration
+- can create local custom model projects and training plans
 
-Settings, API keys, team config, sessions and logs live outside the source
-tree, in a per-machine data directory:
+## User data paths
 
 - Windows: `%LOCALAPPDATA%\SoonAI`
 - macOS/Linux: `~/.soonai`
 
-`soonai status` prints the exact paths. On first run after upgrading, files
-from the old in-tree location (`shared/config.json`, `shared/keys.json`,
-`shared/team.json`) are copied there automatically; nothing is deleted and an
-existing file is never overwritten.
+Use:
 
-## Project hooks
-
-Optional tool hooks can run before or after a tool action. Create
-`.soonai/hooks.json` in the project root:
-
-```json
-{
-  "before_tool": {
-    "run_tests": "python -m pytest -q"
-  },
-  "after_tool": {
-    "write_file": "git diff --check"
-  }
-}
+```bash
+soonai status
 ```
 
-Hooks are restricted to SoonAI's safe-shell allowlist and have a 30-second
-timeout. A failing `before_tool` hook blocks the tool; a failing `after_tool`
-hook reports an error. Hooks are never copied by the installer.
+to inspect the active paths and configuration.
 
-Because `hooks.json` comes from the repository, it can be changed by anyone
-who can push to it. SoonAI therefore lists every command the file declares and
-asks for approval the first time it is used, and remembers the answer per
-project in the data directory. Editing the file invalidates the approval and
-prompts again. When stdin is not a terminal (CI, scripts) hooks are refused
-rather than run. If the agent's shell mode is `off`, hooks are skipped with a
-notice.
-# ธีม UI
+## Common commands
 
-เมื่อเปิด SoonAI ครั้งแรกใน terminal แบบโต้ตอบ โปรแกรมจะแสดงหน้าต่างให้เลือกธีม
-และบันทึกไว้ใน config จึงไม่ถามซ้ำในครั้งถัดไป:
+```bash
+soonai --help
+soonai setup
+soonai status
+soonai /datacenter
+soonai model init demo-model
+soonai train --model demo-model --cluster local --epochs 1
+```
 
-- `luxe` — เรียบหรู ฟ้าเทา
-- `aurora` — เขียวมิ้นต์/น้ำเงิน
-- `sunset` — ส้มอุ่น/ชมพู
-- `classic` — นีออนฟ้า/ชมพู
-- `ocean` — น้ำเงินทะเล/ฟ้า
-- `forest` — เขียวธรรมชาติ
-- `cyberpunk` — เหลือง/แดงนีออน
-- `mono` — ขาวดำมินิมอล
+## Datacenter setup
 
-เปลี่ยนธีมภายหลังได้ด้วยคำสั่ง `/theme` หรือระบุชื่อโดยตรง เช่น `/theme aurora`
+SoonAI can save real datacenter connection details locally on the machine:
+
+```bash
+soonai /datacenter
+```
+
+This stores settings in:
+
+- Windows: `%USERPROFILE%\.soonai\datacenter.json`
+- macOS/Linux: `~/.soonai/datacenter.json`
+
+The profile can then be used for distributed jobs, Slurm/Kubernetes submission, and model training workflows.
+
+## Binary / desktop launch
+
+This project also includes a packaged Windows executable in the `exesoonai` folder for easier local use without needing Python or a terminal.
+
+## License
+
+MIT
+

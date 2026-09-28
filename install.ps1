@@ -7,7 +7,8 @@
 [CmdletBinding()]
 param(
     [string]$TargetDir = (Join-Path $env:LOCALAPPDATA "SoonAI"),
-    [switch]$Install
+    [switch]$Install,
+    [string]$Source = "local"
 )
 
 $ErrorActionPreference = "Stop"
@@ -79,8 +80,11 @@ function Ensure-PythonAvailable {
         Write-Host "[INFO] Python 3.12+ was not found on this machine."
     }
 
+    $os = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+    Write-Host "[INFO] Detected OS: $os"
+
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        Write-Host "[INFO] Auto-installing Python 3.12 via winget..."
+        Write-Host "[INFO] Auto-installing Python 3.12 via winget for Windows..."
         & winget install --id Python.Python.3.12 -e --accept-source-agreements --accept-package-agreements
         if ($LASTEXITCODE -ne 0) {
             throw "Automatic Python install via winget failed. Please install Python 3.12+ manually."
@@ -143,6 +147,12 @@ if (-not $Install) {
     }
     Add-UserPath $target
     exit 0
+}
+
+$sourceName = ($Source ?? "local").ToLowerInvariant()
+if ($sourceName -in @("github", "git", "remote")) {
+    Write-Host "[INFO] GitHub/remote source detected. Using the local installer flow for this machine."
+    $Source = "local"
 }
 
 $python = Ensure-PythonAvailable

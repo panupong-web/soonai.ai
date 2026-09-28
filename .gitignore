@@ -5,6 +5,8 @@ __pycache__/
 .venv/
 venv/
 
+node_modules/
+
 # เครื่องมือพัฒนา (ก็อปปี้ติดตั้งในเครื่อง ไม่ต้อง commit)
 .pytest_cache/
 .ruff_cache/

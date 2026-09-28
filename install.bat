@@ -6,7 +6,7 @@ cd /d "%~dp0"
 
 where winget >nul 2>nul
 if not errorlevel 1 (
-  powershell -NoProfile -Command "if (-not (Get-Command py -ErrorAction SilentlyContinue) -and -not (Get-Command python -ErrorAction SilentlyContinue) -and -not (Get-Command python3 -ErrorAction SilentlyContinue)) { Write-Host '[INFO] Python 3.12+ was not found. Installing automatically...'; winget install --id Python.Python.3.12 -e --accept-source-agreements --accept-package-agreements; if ($LASTEXITCODE -ne 0) { exit 1 } }"
+  powershell -NoProfile -Command "Write-Host '[INFO] Detected OS: Windows'; if (-not (Get-Command py -ErrorAction SilentlyContinue) -and -not (Get-Command python -ErrorAction SilentlyContinue) -and -not (Get-Command python3 -ErrorAction SilentlyContinue)) { Write-Host '[INFO] Python 3.12+ was not found. Installing automatically...'; winget install --id Python.Python.3.12 -e --accept-source-agreements --accept-package-agreements; if ($LASTEXITCODE -ne 0) { exit 1 } }"
   if errorlevel 1 (
     echo [ERROR] ไม่สามารถติดตั้ง Python 3.12+ ให้เองได้
     echo [INFO] กรุณาติดตั้งจาก https://www.python.org/downloads/windows/ หรือรัน: winget install --id Python.Python.3.12 -e

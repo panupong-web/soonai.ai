@@ -27,38 +27,121 @@ install_python_if_missing() {
         fi
     fi
 
-    if command -v brew >/dev/null 2>&1; then
-        echo "[INFO] Python 3.12+ not found. Installing via Homebrew..."
-        brew install python@3.12
-        if command -v python3 >/dev/null 2>&1; then
-            PYTHON=$(command -v python3)
-            return 0
-        fi
-    elif command -v apt-get >/dev/null 2>&1; then
-        echo "[INFO] Python 3.12+ not found. Installing via apt-get..."
-        if command -v sudo >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y python3.12 python3.12-venv python3-pip
-        else
-            apt-get update
-            apt-get install -y python3.12 python3.12-venv python3-pip
-        fi
-        if command -v python3.12 >/dev/null 2>&1; then
-            PYTHON=$(command -v python3.12)
-            return 0
-        fi
-    elif command -v dnf >/dev/null 2>&1; then
-        echo "[INFO] Python 3.12+ not found. Installing via dnf..."
-        if command -v sudo >/dev/null 2>&1; then
-            sudo dnf install -y python3.12 python3.12-pip
-        else
-            dnf install -y python3.12 python3.12-pip
-        fi
-        if command -v python3.12 >/dev/null 2>&1; then
-            PYTHON=$(command -v python3.12)
-            return 0
-        fi
-    fi
+    OS_NAME=$(uname -s 2>/dev/null || echo unknown)
+    echo "[INFO] Detected OS: $OS_NAME"
+
+    case "$OS_NAME" in
+        Darwin)
+            if command -v brew >/dev/null 2>&1; then
+                echo "[INFO] Python 3.12+ not found. Installing via Homebrew..."
+                brew install python@3.12
+                if command -v python3 >/dev/null 2>&1; then
+                    PYTHON=$(command -v python3)
+                    return 0
+                fi
+            fi
+            ;;
+        Linux)
+            if [ -f /etc/os-release ]; then
+                . /etc/os-release
+                OS_ID=${ID:-unknown}
+                OS_ID_LIKE=${ID_LIKE:-}
+            else
+                OS_ID=unknown
+                OS_ID_LIKE=
+            fi
+
+            case "$OS_ID:$OS_ID_LIKE" in
+                ubuntu:*|debian:*|linuxmint:*|pop:*)
+                    echo "[INFO] Detected Debian-family distro. Installing Python 3.12 via apt..."
+                    if command -v sudo >/dev/null 2>&1; then
+                        sudo apt-get update
+                        sudo apt-get install -y python3.12 python3.12-venv python3-pip
+                    else
+                        apt-get update
+                        apt-get install -y python3.12 python3.12-venv python3-pip
+                    fi
+                    if command -v python3.12 >/dev/null 2>&1; then
+                        PYTHON=$(command -v python3.12)
+                        return 0
+                    fi
+                    ;;
+                fedora:*|rhel:*|centos:*|rocky:*|almalinux:*)
+                    echo "[INFO] Detected RHEL-family distro. Installing Python 3.12 via dnf..."
+                    if command -v sudo >/dev/null 2>&1; then
+                        sudo dnf install -y python3.12 python3.12-pip
+                    else
+                        dnf install -y python3.12 python3.12-pip
+                    fi
+                    if command -v python3.12 >/dev/null 2>&1; then
+                        PYTHON=$(command -v python3.12)
+                        return 0
+                    fi
+                    ;;
+                arch:*|manjaro:*)
+                    echo "[INFO] Detected Arch-family distro. Installing Python via pacman..."
+                    if command -v sudo >/dev/null 2>&1; then
+                        sudo pacman -Syu --noconfirm python python-pip
+                    else
+                        pacman -Syu --noconfirm python python-pip
+                    fi
+                    if command -v python >/dev/null 2>&1; then
+                        PYTHON=$(command -v python)
+                        return 0
+                    fi
+                    ;;
+                opensuse*|sles*|sled*)
+                    echo "[INFO] Detected SUSE-family distro. Installing Python 3.12 via zypper..."
+                    if command -v sudo >/dev/null 2>&1; then
+                        sudo zypper install -y python312 python312-pip
+                    else
+                        zypper install -y python312 python312-pip
+                    fi
+                    if command -v python3.12 >/dev/null 2>&1; then
+                        PYTHON=$(command -v python3.12)
+                        return 0
+                    fi
+                    ;;
+                alpine:*)
+                    echo "[INFO] Detected Alpine distro. Installing Python via apk..."
+                    if command -v sudo >/dev/null 2>&1; then
+                        sudo apk add --no-cache python3 py3-pip
+                    else
+                        apk add --no-cache python3 py3-pip
+                    fi
+                    if command -v python3 >/dev/null 2>&1; then
+                        PYTHON=$(command -v python3)
+                        return 0
+                    fi
+                    ;;
+                *)
+                    echo "[INFO] Generic Linux detected. Trying apt-get as fallback..."
+                    if command -v sudo >/dev/null 2>&1; then
+                        sudo apt-get update
+                        sudo apt-get install -y python3.12 python3.12-venv python3-pip
+                    elif command -v apt-get >/dev/null 2>&1; then
+                        apt-get update
+                        apt-get install -y python3.12 python3.12-venv python3-pip
+                    elif command -v dnf >/dev/null 2>&1; then
+                        dnf install -y python3.12 python3.12-pip
+                    elif command -v pacman >/dev/null 2>&1; then
+                        pacman -Syu --noconfirm python python-pip
+                    else
+                        echo "[ERROR] Unsupported Linux distro for automatic Python install." >&2
+                        exit 1
+                    fi
+                    if command -v python3.12 >/dev/null 2>&1; then
+                        PYTHON=$(command -v python3.12)
+                        return 0
+                    fi
+                    ;;
+            esac
+            ;;
+        *)
+            echo "[ERROR] Unsupported OS: $OS_NAME. Please install Python 3.12+ manually." >&2
+            exit 1
+            ;;
+    esac
 
     echo "[ERROR] Python 3.12 or newer was not found and automatic installation failed." >&2
     exit 1
