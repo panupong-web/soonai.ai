@@ -3,6 +3,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import crypto from 'crypto';
 import readline from 'readline';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -14,6 +15,7 @@ const APP_NAME = 'soonai';
 const APP_VERSION = '1.0.0';
 const DEFAULT_CONFIG_NAME = '.soonai.json';
 const DATACENTER_CONFIG_PATH = path.join(os.homedir(), '.soonai', 'datacenter.json');
+const DATACENTER_KEY_PATH = path.join(os.homedir(), '.soonai', '.datacenter.key');
 const LOCAL_MODEL_ROOT = path.join(os.homedir(), 'soonai-models');
 
 function printHelp() {
@@ -901,7 +903,11 @@ function loadDatacenterConfig() {
 
   try {
     const raw = fs.readFileSync(DATACENTER_CONFIG_PATH, 'utf8');
-    return JSON.parse(raw);
+    const config = JSON.parse(raw);
+    if (typeof config.token === 'string' && config.token.startsWith('dpapi:')) {
+      config.token = unprotectDatacenterToken(config.token);
+    }
+    return config;
   } catch {
     return null;
   }
@@ -909,8 +915,68 @@ function loadDatacenterConfig() {
 
 function saveDatacenterConfig(data) {
   getDatacenterConfigDir();
-  fs.writeFileSync(DATACENTER_CONFIG_PATH, JSON.stringify(data, null, 2) + '\n', 'utf8');
+  const stored = { ...data };
+  if (stored.token) {
+    stored.token = protectDatacenterToken(stored.token);
+    if (process.platform === 'win32' && stored.token === data.token) {
+      throw new Error('Unable to protect the datacenter token with Windows DPAPI; refusing to save it as plaintext.');
+    }
+  }
+  fs.writeFileSync(DATACENTER_CONFIG_PATH, JSON.stringify(stored, null, 2) + '\n', 'utf8');
+  if (process.platform !== 'win32') {
+    try {
+      fs.chmodSync(DATACENTER_CONFIG_PATH, 0o600);
+    } catch {
+      // Keep the config usable on filesystems that do not support chmod.
+    }
+  }
   return DATACENTER_CONFIG_PATH;
+}
+
+function protectDatacenterToken(token) {
+  if (!token || token.startsWith('aes256gcm:')) {
+    return token;
+  }
+
+  ensureDir(path.dirname(DATACENTER_KEY_PATH));
+  let key;
+  if (fs.existsSync(DATACENTER_KEY_PATH)) {
+    key = Buffer.from(fs.readFileSync(DATACENTER_KEY_PATH, 'utf8').trim(), 'base64');
+  } else {
+    key = crypto.randomBytes(32);
+    fs.writeFileSync(DATACENTER_KEY_PATH, key.toString('base64') + '\n', { mode: 0o600 });
+  }
+  if (key.length !== 32) {
+    throw new Error('Invalid datacenter encryption key.');
+  }
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(String(token), 'utf8'), cipher.final()]);
+  const payload = Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64');
+  return `aes256gcm:${payload}`;
+}
+
+function unprotectDatacenterToken(token) {
+  if (!token || !token.startsWith('aes256gcm:')) {
+    return token;
+  }
+
+  try {
+    const key = Buffer.from(fs.readFileSync(DATACENTER_KEY_PATH, 'utf8').trim(), 'base64');
+    const payload = Buffer.from(token.slice('aes256gcm:'.length), 'base64');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, payload.subarray(0, 12));
+    decipher.setAuthTag(payload.subarray(12, 28));
+    return decipher.update(payload.subarray(28), undefined, 'utf8') + decipher.final('utf8');
+  } catch {
+    return '';
+  }
+}
+
+function publicDatacenterConfig(config) {
+  if (!config) {
+    return config;
+  }
+  return { ...config, token: config.token ? '[stored securely]' : '' };
 }
 
 function showDatacenterHelp() {
@@ -1012,7 +1078,7 @@ async function commandDatacenter(args) {
       console.log('Run: soonai /datacenter');
       return 0;
     }
-    console.log(JSON.stringify(config, null, 2));
+    console.log(JSON.stringify(publicDatacenterConfig(config), null, 2));
     return 0;
   }
 
@@ -1046,7 +1112,7 @@ async function commandDatacenter(args) {
     const savedPath = saveDatacenterConfig(nextConfig);
     console.log('[OK] Datacenter profile saved without interactive prompts.');
     console.log(`Saved to: ${savedPath}`);
-    console.log(JSON.stringify(nextConfig, null, 2));
+    console.log(JSON.stringify(publicDatacenterConfig(nextConfig), null, 2));
     return 0;
   }
 
@@ -1072,7 +1138,7 @@ async function commandDatacenter(args) {
         console.log('No saved datacenter config found.');
         return 0;
       }
-      console.log(JSON.stringify(config, null, 2));
+      console.log(JSON.stringify(publicDatacenterConfig(config), null, 2));
       return 0;
     }
 
