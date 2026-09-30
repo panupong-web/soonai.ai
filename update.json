@@ -1,0 +1,17 @@
+{
+  "version": "2.32.0",
+  "url": "https://github.com/panupong-web/soonai.ai/commits/main",
+  "notes": "ปรับปรุงระบบติดตั้งและการเริ่มใช้งานครั้งแรกให้ใช้งานได้แม้ไม่มี Ollama",
+  "security": [
+    "อัปเดตผ่าน HTTPS จากแหล่ง GitHub ที่กำหนดเท่านั้น",
+    "ไม่แตะต้อง API keys, sessions และข้อมูลส่วนตัวของผู้ใช้"
+  ],
+  "performance": [
+    "ลดขั้นตอนติดตั้งซ้ำและตรวจสอบ dependency อย่างมีประสิทธิภาพ",
+    "ปรับปรุงหน้าติดตั้งและการแสดงสถานะให้ลื่นไหลขึ้น"
+  ],
+  "stability": [
+    "แก้ปัญหา Windows Python alias และการติดตั้งจากไฟล์ installer เดี่ยว",
+    "แก้ first launch ไม่ให้บังคับต้องมี Ollama"
+  ]
+}

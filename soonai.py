@@ -4524,7 +4524,8 @@ def load_config():
     cfg.setdefault("context_budget", 24000)
     cfg.setdefault("boost", True)
     cfg.setdefault("effort", "")
-    cfg.setdefault("update_url", "")
+    if not cfg.get("update_url"):
+        cfg["update_url"] = "https://raw.githubusercontent.com/panupong-web/soonai.ai/main/update.json"
     cfg.setdefault("skipped_version", "")
     cfg.setdefault("last_update_check", 0)
     # เติม system prompt คุณภาพเฉพาะตอนไฟล์ยังไม่มีค่านี้ (ไม่ทับค่าที่ผู้ใช้ตั้งไว้เอง)
@@ -7819,7 +7820,10 @@ def fetch_latest_meta(url, timeout=5):
         if not isinstance(d, dict) or not d.get("version"):
             return None
         return {"version": str(d["version"]), "notes": str(d.get("notes", "")),
-                "url": str(d.get("url", ""))}
+            "security": d.get("security", []),
+            "performance": d.get("performance", []),
+            "stability": d.get("stability", []),
+            "url": str(d.get("url", ""))}
     except Exception:
         return None
 
@@ -7860,6 +7864,51 @@ def check_update(cfg, force=False):
     return meta
 
 
+def _update_from_installer(meta):
+    """อัปเดต installation ที่ไม่มี .git ด้วย installer จาก HTTPS เท่านั้น"""
+    import tempfile
+    import subprocess
+
+    if os.name == "nt":
+        installer_url = "https://raw.githubusercontent.com/panupong-web/soonai.ai/main/install.ps1"
+        suffix = ".ps1"
+    else:
+        installer_url = "https://raw.githubusercontent.com/panupong-web/soonai.ai/main/install.sh"
+        suffix = ".sh"
+    installer_path = None
+    try:
+        response = requests.get(installer_url, timeout=30)
+        response.raise_for_status()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as handle:
+            handle.write(response.content)
+            installer_path = handle.name
+        if os.name == "nt":
+            command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                       "-File", installer_path, "-Install"]
+        else:
+            os.chmod(installer_path, 0o700)
+            command = ["sh", installer_path]
+        result = subprocess.run(command, timeout=600)
+        if result.returncode != 0:
+            console.print(f"[red]ติดตั้งอัปเดตไม่สำเร็จ (exit {result.returncode})[/red]")
+            return False
+        console.print(f"[green]อัปเดตเป็น {meta['version']} สำเร็จ — กำลังเปิดใหม่…[/green]")
+        restart_program()
+        return True
+    except requests.RequestException as e:
+        console.print(f"[red]ดาวน์โหลดตัวอัปเดตไม่สำเร็จ: {e}[/red]")
+        return False
+    except Exception as e:
+        console.print(f"[red]อัปเดตไม่สำเร็จ: {e}[/red]")
+        return False
+    finally:
+        try:
+            if installer_path:
+                os.unlink(installer_path)
+        except Exception:
+            pass
+
+
 def do_update(cfg, meta):
     """อัปเดตผ่าน git pull ถ้ามี remote ไม่งั้นบอกวิธีทำมือ"""
     import subprocess
@@ -7867,18 +7916,12 @@ def do_update(cfg, meta):
         rem = subprocess.run(["git", "-C", str(BASE_DIR), "remote"],
                              capture_output=True, text=True, timeout=15)
     except FileNotFoundError:
-        console.print("[yellow]เครื่องนี้ไม่มี git — อัปเดตมือตามลิงก์นี้: "
-                      f"{meta.get('url') or 'ติดต่อผู้ดูแล'}[/yellow]")
-        return False
+        return _update_from_installer(meta)
     except Exception as e:
         console.print(f"[red]ตรวจ git ไม่ได้: {e}[/red]")
         return False
     if rem.returncode != 0 or not rem.stdout.strip():
-        console.print("[yellow]ยังไม่ผูก remote — push โปรเจกต์ขึ้น GitHub ก่อน "
-                      "แล้วรันคำสั่งนี้ใหม่[/yellow]")
-        if meta.get("url"):
-            console.print(f"[dim]ดาวน์โหลด/ดูรายละเอียด: {meta['url']}[/dim]")
-        return False
+        return _update_from_installer(meta)
     console.print(f"[dim]ดึงจาก remote: {rem.stdout.strip().replace(chr(10), ', ')}[/dim]")
     try:
         # กันงานที่ยังไม่ commit หาย — pull อัตโนมัติเฉพาะ working tree สะอาด
@@ -7924,8 +7967,17 @@ def restart_program():
 def update_popup(cfg, meta):
     """ป็อปอัพแจ้งเวอร์ชันใหม่ คืน True ถ้าอัปเดตแล้ว"""
     notes = (meta.get("notes") or "")[:500] or "—"
-    console.print(Panel(f"[bold]มี SoonAI เวอร์ชันใหม่: {VERSION} → {meta['version']}[/bold]\n{notes}",
-                        title="🎉 อัปเดต", border_style="green"))
+    def _detail(label, value):
+        if isinstance(value, (list, tuple)):
+            return "\n".join(f"  • {str(item)[:180]}" for item in value[:4]) or "  • —"
+        return f"  • {str(value)[:350]}" if value else "  • —"
+
+    details = (f"[bold]มี SoonAI เวอร์ชันใหม่: {VERSION} → {meta['version']}[/bold]\n"
+               f"{notes}\n\n"
+               f"[bold cyan]สิ่งที่ดีขึ้น[/bold cyan]\n{_detail('performance', meta.get('performance'))}\n\n"
+               f"[bold yellow]ความปลอดภัย[/bold yellow]\n{_detail('security', meta.get('security'))}\n\n"
+               f"[bold green]เสถียรภาพ[/bold green]\n{_detail('stability', meta.get('stability'))}")
+    console.print(Panel(details, title="SoonAI Update", border_style="green"))
     console.print("[dim]u = อัปเดตเลย · s = ข้ามเวอร์ชันนี้ · l = เตือนทีหลัง[/dim]")
     try:
         ans = Prompt.ask("เลือก", choices=["u", "s", "l"], default="l")
