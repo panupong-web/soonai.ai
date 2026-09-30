@@ -983,6 +983,14 @@ def cmd_chat(args, keys, cfg):
     if st.provider not in R.PROVIDERS:
         R.console.print(f"[red]ไม่รู้จัก provider: {st.provider}[/red]")
         return 1
+    first_run = not st.cfg.get("model") and not st.keys and not getattr(st.args, "resume", None)
+    if first_run and st.provider == "ollama":
+        R.console.print("[yellow]ยังไม่ได้ตั้งค่า provider และไม่จำเป็นต้องมี Ollama เพื่อเริ่มต้น[/yellow]")
+        if not sys.stdin.isatty():
+            R.console.print("[dim]รัน `soonai setup` เพื่อเลือก provider และตั้งค่า model[/dim]")
+            return 0
+        R.console.print("[dim]กำลังเปิดตัวช่วยตั้งค่า เพื่อเลือก Ollama, LM Studio หรือ provider แบบ cloud[/dim]")
+        return R.cmd_setup(st.args, st.keys, st.cfg)
     if not R.ensure_key(st.provider, st.keys):
         return 1
     if not R.ensure_local_server(st.provider):

@@ -33,6 +33,7 @@ function Get-PythonCandidates {
     }
 
     $commonRoots = @(
+        "$env:LOCALAPPDATA\Python",
         "$env:LOCALAPPDATA\Programs\Python",
         "$env:USERPROFILE\AppData\Local\Programs\Python",
         "$env:ProgramFiles\Python",

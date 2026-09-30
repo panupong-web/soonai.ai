@@ -41,6 +41,10 @@ soonai --version
 soonai setup
 ```
 
+The first launch does not require Ollama. If Ollama is not installed, SoonAI
+opens the provider setup flow so you can choose Ollama, LM Studio, or a cloud
+provider instead.
+
 ## What SoonAI does
 
 - installs Python 3.12+ automatically when needed
