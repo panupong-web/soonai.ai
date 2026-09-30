@@ -12,6 +12,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$host.UI.RawUI.WindowTitle = "SoonAI Installer"
+Write-Host ""
+Write-Host "+--------------------------------------------------------------+" -ForegroundColor Cyan
+Write-Host "|                         SOONAI                               |" -ForegroundColor Cyan
+Write-Host "|              Local AI CLI installation                       |" -ForegroundColor DarkCyan
+Write-Host "+--------------------------------------------------------------+" -ForegroundColor Cyan
+Write-Host ""
 $sourceDir = (Resolve-Path (Join-Path $PSScriptRoot ".")).Path
 $sourceName = if ($null -ne $Source) { $Source } else { "local" }
 $sourceName = $sourceName.ToLowerInvariant()
@@ -21,16 +28,23 @@ if ($sourceName -in @("github", "git", "remote") -or
     $archivePath = Join-Path $downloadRoot "soonai-main.zip"
     $extractRoot = Join-Path $downloadRoot "extracted"
     New-Item -ItemType Directory -Force -Path $downloadRoot | Out-Null
-    Write-Host "[INFO] Downloading SoonAI source from GitHub..."
-    Invoke-WebRequest -UseBasicParsing `
-        -Uri "https://github.com/panupong-web/soonai.ai/archive/refs/heads/main.zip" `
-        -OutFile $archivePath
+    Write-Host "[1/4] Downloading latest SoonAI source..." -ForegroundColor Yellow
+    $webClient = New-Object System.Net.WebClient
+    try {
+        $webClient.DownloadFile(
+            "https://github.com/panupong-web/soonai.ai/archive/refs/heads/main.zip",
+            $archivePath)
+    } finally {
+        $webClient.Dispose()
+    }
     Expand-Archive -LiteralPath $archivePath -DestinationPath $extractRoot -Force
     $sourceDir = Join-Path $extractRoot "soonai.ai-main"
     if (-not (Test-Path -LiteralPath (Join-Path $sourceDir "requirements.txt"))) {
         throw "Downloaded SoonAI source is incomplete: requirements.txt was not found."
     }
 }
+$sourceReady = if (Test-Path -LiteralPath (Join-Path $sourceDir "requirements.txt")) { "ready" } else { "missing" }
+Write-Host "[2/4] Source: $sourceReady" -ForegroundColor Green
 $target = [System.IO.Path]::GetFullPath($TargetDir).TrimEnd('\')
 $venvDir = Join-Path $target ".venv"
 

@@ -15,7 +15,7 @@ curl -fsSL https://raw.githubusercontent.com/panupong-web/soonai.ai/main/install
 ### Windows PowerShell
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest https://raw.githubusercontent.com/panupong-web/soonai.ai/main/install.ps1 -OutFile $env:TEMP\soonai-install.ps1; & $env:TEMP\soonai-install.ps1 -Install"
+powershell -ExecutionPolicy Bypass -Command "$u='https://raw.githubusercontent.com/panupong-web/soonai.ai/main/install.ps1'; $f=Join-Path $env:TEMP 'soonai-install.ps1'; $w=New-Object Net.WebClient; $w.DownloadFile($u,$f); $w.Dispose(); & $f -Install"
 ```
 
 ### Local repo install
