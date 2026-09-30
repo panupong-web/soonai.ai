@@ -1,0 +1,43 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="orbital" x1="197" y1="211" x2="824" y2="797" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#48D7FF"/>
+      <stop offset="0.5" stop-color="#5B9BFF"/>
+      <stop offset="1" stop-color="#E36CFF"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="290" y1="244" x2="727" y2="620" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1C2135"/>
+      <stop offset="1" stop-color="#0A1222"/>
+    </linearGradient>
+    <linearGradient id="textGrad" x1="170" y1="768" x2="820" y2="930" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#57D7FF"/>
+      <stop offset="0.46" stop-color="#5B9BFF"/>
+      <stop offset="1" stop-color="#F06CFF"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="0" stdDeviation="18" flood-color="#40D9FF" flood-opacity="0.8"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="28" flood-color="#FF5FE2" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" fill="#04080E"/>
+
+  <g filter="url(#glow)">
+    <path d="M213 714C318 642 380 608 474 560C573 509 634 520 738 442C787 402 826 354 862 292" stroke="url(#orbital)" stroke-width="26" stroke-linecap="round"/>
+    <path d="M687 293C717 270 756 285 770 310L834 412C847 436 841 467 816 483L758 521C731 537 695 532 672 507L604 431C581 405 589 365 621 346L687 293Z" fill="url(#orbital)" opacity="0.96"/>
+  </g>
+
+  <g filter="url(#glow)">
+    <rect x="208" y="208" width="495" height="328" rx="36" fill="url(#panel)" stroke="url(#orbital)" stroke-width="18"/>
+    <path d="M300 380H520C534.359 380 546 391.641 546 406C546 420.359 534.359 432 520 432H300C285.641 432 274 420.359 274 406C274 391.641 285.641 380 300 380Z" fill="#E7F5FF" opacity="0.08"/>
+    <path d="M470 314H381L352 357L381 400H470L508 357L470 314Z" fill="#F7F9FF"/>
+    <path d="M359 318L340 357L359 396H405L416 378H400L388 357L400 336H416L405 318H359Z" fill="#04080E" opacity="0.6"/>
+    <path d="M454 304L524 304C546 304 564 322 564 344V370C564 392 546 410 524 410H454L469 390H520C529 390 536 383 536 374V340C536 331 529 324 520 324H469L454 304Z" fill="#EAF6FF" opacity="0.08"/>
+    <path d="M289 529L517 529" stroke="#48D7FF" stroke-width="14" stroke-linecap="round" opacity="0.8"/>
+    <path d="M610 755H655" stroke="#FFC0FF" stroke-width="18" stroke-linecap="round"/>
+  </g>
+
+  <g>
+    <text x="512" y="770" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="154" font-weight="700" fill="url(#textGrad)" letter-spacing="-6">soonai</text>
+  </g>
+</svg>

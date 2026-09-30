@@ -18,12 +18,16 @@ $venvDir = Join-Path $target ".venv"
 
 function Get-PythonCandidates {
     $candidates = @()
-    foreach ($cmd in @("py", "python", "python3")) {
+    foreach ($cmd in @("python", "python3", "py")) {
         $resolved = Get-Command $cmd -ErrorAction SilentlyContinue
         if ($resolved) {
-            $candidates += @{ Exe = $resolved.Source; Args = @() }
             if ($cmd -eq "py") {
-                $candidates += @{ Exe = $resolved.Source; Args = @("-3") }
+                # Keep the command name instead of the WindowsApps alias path.
+                # The alias forwards correctly when invoked by name, but passing
+                # its .exe path directly can make Python treat py.exe as a script.
+                $candidates += @{ Exe = $cmd; Args = @("-3") }
+            } else {
+                $candidates += @{ Exe = $cmd; Args = @() }
             }
         }
     }
@@ -149,7 +153,8 @@ if (-not $Install) {
     exit 0
 }
 
-$sourceName = ($Source ?? "local").ToLowerInvariant()
+$sourceName = if ($null -ne $Source) { $Source } else { "local" }
+$sourceName = $sourceName.ToLowerInvariant()
 if ($sourceName -in @("github", "git", "remote")) {
     Write-Host "[INFO] GitHub/remote source detected. Using the local installer flow for this machine."
     $Source = "local"

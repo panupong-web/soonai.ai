@@ -26,6 +26,7 @@ shared/team.json
 sessions/*.json
 debug_last.json
 crash.log
+telegram_bot.log
 .env
 
 # log ของโหมด debug (ปกติอยู่ที่ <DATA_DIR>/logs/ · เผื่อกรณี fallback มาโฟลเดอร์โปรเจค)
