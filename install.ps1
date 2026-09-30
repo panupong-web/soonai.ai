@@ -13,6 +13,24 @@ param(
 
 $ErrorActionPreference = "Stop"
 $sourceDir = (Resolve-Path (Join-Path $PSScriptRoot ".")).Path
+$sourceName = if ($null -ne $Source) { $Source } else { "local" }
+$sourceName = $sourceName.ToLowerInvariant()
+if ($sourceName -in @("github", "git", "remote") -or
+    -not (Test-Path -LiteralPath (Join-Path $sourceDir "requirements.txt"))) {
+    $downloadRoot = Join-Path $env:TEMP ("soonai-source-" + [guid]::NewGuid().ToString("N"))
+    $archivePath = Join-Path $downloadRoot "soonai-main.zip"
+    $extractRoot = Join-Path $downloadRoot "extracted"
+    New-Item -ItemType Directory -Force -Path $downloadRoot | Out-Null
+    Write-Host "[INFO] Downloading SoonAI source from GitHub..."
+    Invoke-WebRequest -UseBasicParsing `
+        -Uri "https://github.com/panupong-web/soonai.ai/archive/refs/heads/main.zip" `
+        -OutFile $archivePath
+    Expand-Archive -LiteralPath $archivePath -DestinationPath $extractRoot -Force
+    $sourceDir = Join-Path $extractRoot "soonai.ai-main"
+    if (-not (Test-Path -LiteralPath (Join-Path $sourceDir "requirements.txt"))) {
+        throw "Downloaded SoonAI source is incomplete: requirements.txt was not found."
+    }
+}
 $target = [System.IO.Path]::GetFullPath($TargetDir).TrimEnd('\')
 $venvDir = Join-Path $target ".venv"
 
