@@ -97,7 +97,20 @@ The profile can then be used for distributed jobs, Slurm/Kubernetes submission, 
 
 This project also includes a packaged Windows executable in the `exesoonai` folder for easier local use without needing Python or a terminal.
 
+Verify its SHA-256 before running it:
+
+```powershell
+Get-FileHash .\exesoonai\soonai.exe -Algorithm SHA256
+Get-Content .\exesoonai\SHA256SUMS.txt
+```
+
+Compare the hashes. The checksum detects accidental changes; because it is hosted in the same public repository, it is not a substitute for a trusted digital signature.
+
 ## License
 
 MIT
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for credential-storage details, EXE checksum instructions, update trust boundaries, and vulnerability reporting.
 

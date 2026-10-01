@@ -28,6 +28,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: ตรวจ Node dependencies
+        run: |
+          npm ci
+          npm audit --audit-level=moderate
+
+      - name: ตรวจ SHA-256 ของ EXE
+        shell: pwsh
+        run: |
+          $line = Get-Content exesoonai/SHA256SUMS.txt | Select-Object -First 1
+          $expected = ($line -split '\s+')[0]
+          $actual = (Get-FileHash exesoonai/soonai.exe -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { throw "EXE checksum mismatch: expected $expected, got $actual" }
+
+      - name: smoke test (standalone EXE)
+        run: .\exesoonai\soonai.exe --version
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
@@ -40,17 +61,19 @@ jobs:
           python -m pip install pip-audit
 
       - name: ตรวจ dependency vulnerabilities
-        run: pip-audit -r requirements.txt
+        run: pip-audit -r requirements.txt -r requirements-dev.txt
 
       - name: ตรวจ secrets ที่เผลอ commit
         shell: pwsh
         run: |
-          $patterns = 'BEGIN (RSA|EC|OPENSSH) PRIVATE KEY|sk-[A-Za-z0-9]{20,}|AIza[A-Za-z0-9_-]{20,}'
-          $hits = git grep -n -I -E $patterns -- . ':!shared/keys.example.json' ':!shared/mcp.example.json' 2>$null
-          if ($LASTEXITCODE -eq 0 -and $hits) {
+          $patterns = '-----BEGIN (RSA|EC|OPENSSH|DSA) PRIVATE KEY-----|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[A-Za-z0-9_-]{30,}|sk-[A-Za-z0-9]{32,}'
+          $hits = git grep -n -I -i -E -e $patterns -- . ':!shared/keys.example.json' ':!shared/mcp.example.json' 2>$null
+          $scanExit = $LASTEXITCODE
+          if ($scanExit -eq 0 -and $hits) {
             Write-Error "Potential secret detected in tracked files:`n$hits"
             exit 1
           }
+          if ($scanExit -gt 1) { throw "Secret scan failed with git grep exit code $scanExit" }
 
       - name: Lint (ruff)
         run: python -m ruff check .

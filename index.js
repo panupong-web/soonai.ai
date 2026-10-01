@@ -12,7 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const APP_NAME = 'soonai';
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.0.1';
 const DEFAULT_CONFIG_NAME = '.soonai.json';
 const DATACENTER_CONFIG_PATH = path.join(os.homedir(), '.soonai', 'datacenter.json');
 const DATACENTER_KEY_PATH = path.join(os.homedir(), '.soonai', '.datacenter.key');
@@ -901,16 +901,17 @@ function loadDatacenterConfig() {
     return null;
   }
 
+  let config;
   try {
     const raw = fs.readFileSync(DATACENTER_CONFIG_PATH, 'utf8');
-    const config = JSON.parse(raw);
-    if (typeof config.token === 'string' && config.token.startsWith('dpapi:')) {
-      config.token = unprotectDatacenterToken(config.token);
-    }
-    return config;
+    config = JSON.parse(raw);
   } catch {
     return null;
   }
+  if (typeof config.token === 'string' && config.token.startsWith('aes256gcm:')) {
+    config.token = unprotectDatacenterToken(config.token);
+  }
+  return config;
 }
 
 function saveDatacenterConfig(data) {
@@ -922,7 +923,10 @@ function saveDatacenterConfig(data) {
       throw new Error('Unable to protect the datacenter token with Windows DPAPI; refusing to save it as plaintext.');
     }
   }
-  fs.writeFileSync(DATACENTER_CONFIG_PATH, JSON.stringify(stored, null, 2) + '\n', 'utf8');
+  fs.writeFileSync(DATACENTER_CONFIG_PATH, JSON.stringify(stored, null, 2) + '\n', {
+    encoding: 'utf8',
+    mode: 0o600
+  });
   if (process.platform !== 'win32') {
     try {
       fs.chmodSync(DATACENTER_CONFIG_PATH, 0o600);
@@ -942,6 +946,9 @@ function protectDatacenterToken(token) {
   let key;
   if (fs.existsSync(DATACENTER_KEY_PATH)) {
     key = Buffer.from(fs.readFileSync(DATACENTER_KEY_PATH, 'utf8').trim(), 'base64');
+    if (process.platform !== 'win32') {
+      fs.chmodSync(DATACENTER_KEY_PATH, 0o600);
+    }
   } else {
     key = crypto.randomBytes(32);
     fs.writeFileSync(DATACENTER_KEY_PATH, key.toString('base64') + '\n', { mode: 0o600 });
@@ -968,7 +975,7 @@ function unprotectDatacenterToken(token) {
     decipher.setAuthTag(payload.subarray(12, 28));
     return decipher.update(payload.subarray(28), undefined, 'utf8') + decipher.final('utf8');
   } catch {
-    return '';
+    throw new Error('Cannot decrypt the saved datacenter token. The local encryption key may be missing or damaged; refusing to silently discard the credential.');
   }
 }
 

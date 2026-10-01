@@ -1,17 +1,18 @@
 {
-  "version": "2.32.0",
+  "version": "2.33.0",
   "url": "https://github.com/panupong-web/soonai.ai/commits/main",
-  "notes": "ปรับปรุงระบบติดตั้งและการเริ่มใช้งานครั้งแรกให้ใช้งานได้แม้ไม่มี Ollama",
+  "notes": "เสริมการป้องกันข้อมูล datacenter, ตรวจ dependency และไฟล์ EXE, พร้อมปรับปรุงตัวสร้าง binary",
   "security": [
     "อัปเดตผ่าน HTTPS จากแหล่ง GitHub ที่กำหนดเท่านั้น",
-    "ไม่แตะต้อง API keys, sessions และข้อมูลส่วนตัวของผู้ใช้"
+    "เข้ารหัส datacenter token และปิดการแสดง token ใน CLI",
+    "เพิ่ม secret scan ใน CI และปฏิเสธการบันทึก credential เป็น plaintext เมื่อเข้ารหัสล้มเหลว"
   ],
   "performance": [
-    "ลดขั้นตอนติดตั้งซ้ำและตรวจสอบ dependency อย่างมีประสิทธิภาพ",
-    "ปรับปรุงหน้าติดตั้งและการแสดงสถานะให้ลื่นไหลขึ้น"
+    "เปลี่ยนไปใช้ maintained executable packager และตรวจ dependency ด้วย npm audit",
+    "ตรวจ SHA-256 และ smoke test ของไฟล์ EXE ใน CI"
   ],
   "stability": [
-    "แก้ปัญหา Windows Python alias และการติดตั้งจากไฟล์ installer เดี่ยว",
-    "แก้ first launch ไม่ให้บังคับต้องมี Ollama"
+    "แก้การถอดรหัส token และรายงานชัดเจนเมื่อ encryption key เสียหรือหาย",
+    "เพิ่ม checksum gate และ secret scan ที่ fail เมื่อ scanner ทำงานผิดพลาด"
   ]
 }

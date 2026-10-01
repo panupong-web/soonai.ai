@@ -376,7 +376,7 @@ SKILL_STATE_FILE = (Path(os.environ["SOONAI_SKILL_STATE"]) if os.environ.get("SO
                     else DATA_DIR / "skills_state.json")   # ทับด้วย env ได้ (ทดสอบ/ซิงก์ความจำ)
 SESSIONS_DIR = DATA_DIR / "sessions"
 MAX_STAFF = 5
-VERSION = "2.32.0"
+VERSION = "2.33.0"
 DEFAULT_SYSTEM = "คุณคือผู้ช่วย AI ภาคภาษาไทย ตอบกระชับ ชัดเจน"
 # กฎจัดการข้อความกำกวม/ต้านคำตอบมั่ว (แชทปกติ + agent + ทีม) — เคสจริงที่พบ:
 # ผู้ใช้พิมพ์สั้น ๆ ว่า "ใช้ mcp ดิ" แล้วโมเดลเดาเป็น Roblox พร้อมอ้างพาธ

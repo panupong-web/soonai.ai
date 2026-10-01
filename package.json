@@ -1,6 +1,6 @@
 {
   "name": "soonai",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "SoonAI - Local CLI coding assistant for developers",
   "type": "module",
   "bin": {
@@ -9,13 +9,13 @@
   "scripts": {
     "start": "node index.js",
     "soonai": "node index.js",
-    "build:exe": "pkg . --targets node18-win-x64 --output exesoonai/soonai.exe"
+    "build:exe": "pkg . --targets node24-win-x64 --output exesoonai/soonai.exe"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "devDependencies": {
-    "pkg": "^5.8.1"
+    "@yao-pkg/pkg": "6.23.0"
   },
   "license": "MIT",
   "pkg": {
@@ -26,7 +26,7 @@
       "index.js"
     ],
     "targets": [
-      "node18-win-x64"
+      "node24-win-x64"
     ]
   }
 }
