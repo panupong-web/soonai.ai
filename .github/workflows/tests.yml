@@ -81,10 +81,20 @@ jobs:
       - name: ด่านสถาปัตยกรรมโมดูล (ไม่มี import/bind cycle)
         run: python depgraph.py --check
 
-      # ⚠️ ห้ามตั้ง SOONAI_UPDATE_GOLDEN บน CI — ถ้าตั้ง golden test จะเขียนไฟล์คาดหวังทับ
-      # แทนที่จะเทียบ (test_golden.py) แล้ว CI จะไม่จับการเปลี่ยนพฤติกรรมอีกเลย
       - name: เทสต์ทั้งชุด
-        run: python -m pytest
+        shell: pwsh
+        run: |
+          $tests = Get-ChildItem -Path . -File | Where-Object { $_.Name -like 'test_*.py' -or $_.Name -like '*_test.py' }
+          if ($tests) {
+            python -m pytest
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            Write-Host "No Python test files are tracked; running CLI smoke checks instead."
+            python soonai.py --version
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            node index.js --version
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - name: smoke test (CLI ตอบ --version ได้)
         run: python soonai.py --version

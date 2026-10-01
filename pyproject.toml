@@ -42,3 +42,8 @@ exclude = [
 #   I (isort) ~27 จุด · UP (pyupgrade) ~43 · RUF ~63 · SIM ~80 · B (bugbear) ~21
 # รวมแล้วควรยกโมดูลทีละตัวพร้อมเทสต์ ไม่ควรเปิดรวดเดียวทั้งโปรเจค
 select = ["E4", "E7", "E9", "F", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+# soonai.py deliberately imports names into its runtime facade after platform
+# setup; those imports are compatibility exports, not unused implementation.
+"soonai.py" = ["E402", "F401"]
