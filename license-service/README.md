@@ -21,6 +21,18 @@ Do not put `ADMIN_API_TOKEN`, customer license keys, or Cloudflare credentials i
 
 ## Issue a license
 
+From PowerShell in this directory, run:
+
+```powershell
+.\issue-license.ps1
+```
+
+Enter the existing `ADMIN_API_TOKEN` at the hidden prompt. If you no longer have it, reset it with `npx wrangler secret put ADMIN_API_TOKEN` and store the new value in your password manager. The newly issued customer key is printed once in this terminal; deliver it privately. The customer activates it with `soonai license activate`.
+
+To issue a key with fewer than three devices or an expiration date, use `-MaxDevices 1` or `-ExpiresAt "2027-01-01T00:00:00Z"`.
+
+The direct API form is also available:
+
 ```powershell
 $headers = @{ Authorization = "Bearer $env:ADMIN_API_TOKEN" }
 $body = @{ max_devices = 3 } | ConvertTo-Json
