@@ -2,21 +2,20 @@
 
 Cloudflare Worker + D1 service for issuing and validating SoonAI device activations. License keys and activation bearer tokens are stored as SHA-256 hashes in D1; raw license keys are returned once by the admin endpoint and must be delivered privately to the customer.
 
-The Worker does not receive prompts, source files, API provider keys, or workspace contents. It only receives a license key during activation and an opaque random device identifier. Both Python and Node CLIs expose activation/status/deactivation; licensing remains opt-in until this service has been deployed and configured.
+The Worker does not receive prompts, source files, API provider keys, or workspace contents. It only receives a license key during activation and an opaque random device identifier. Both Python and Node CLIs expose activation/status/deactivation; licensing remains opt-in until the HTTPS endpoint is verified and a real key is tested.
 
 ## Deploy
 
 Requires Node.js 22+, a Cloudflare account, and Wrangler authentication (`npx wrangler login`).
 
 1. Install dependencies: `npm ci`
-2. Create the D1 database: `npm run db:create`
-3. Copy the returned database ID into `wrangler.toml` in place of the placeholder.
-4. Apply schema: `npm run db:migrate:remote`
-5. Set an admin secret: `npx wrangler secret put ADMIN_API_TOKEN`
-6. Deploy: `npm run deploy`
-7. Configure Cloudflare rate limiting for `/v1/*` and `/admin/*` before distributing production licenses.
-8. Set `SOONAI_LICENSE_API_URL` to the deployed HTTPS Worker URL on official client builds.
-9. Only after activating and testing a real customer key, enable `SOONAI_LICENSE_REQUIRED=1` in the official launcher environment/release. Keep the gate off until then so an unavailable service cannot lock out all users.
+2. The official D1 database `soonai-licenses` is configured in `wrangler.toml`. On a new Cloudflare account, create a D1 database with `npm run db:create` and replace `database_id` with its returned ID.
+3. Apply schema: `npm run db:migrate:remote`
+4. Set an admin secret: `npx wrangler secret put ADMIN_API_TOKEN`
+5. Deploy: `npm run deploy`
+6. Configure Cloudflare rate limiting for `/v1/*` and `/admin/*` before distributing production licenses.
+7. Set `SOONAI_LICENSE_API_URL` to the deployed HTTPS Worker URL on official client builds.
+8. Only after HTTPS health checks and a real customer key are tested, enable `SOONAI_LICENSE_REQUIRED=1` in the official launcher environment/release. Keep the gate off until then so an unavailable service cannot lock out all users.
 
 Do not put `ADMIN_API_TOKEN`, customer license keys, or Cloudflare credentials in Git, `.dev.vars`, or client code. For local development, use an untracked `.dev.vars` file and a local D1 database only.
 

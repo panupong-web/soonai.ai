@@ -93,9 +93,9 @@ This stores settings in:
 
 The profile can then be used for distributed jobs, Slurm/Kubernetes submission, and model training workflows.
 
-## License activation (service not yet deployed)
+## License activation (service deployed; gate remains opt-in)
 
-The public repository includes an optional Cloudflare Worker license service. It permits up to three activated devices per key. Both the Python CLI and Node CLI expose `soonai license activate`, `soonai license status`, and `soonai license deactivate` after the service is deployed and `SOONAI_LICENSE_API_URL` is configured. The gate is intentionally off until the service owner deploys it and tests a real key. Licensing discourages casual sharing in the official clients; it cannot prevent users from copying or modifying public MIT-licensed source. See [license-service/README.md](license-service/README.md).
+The public repository includes an optional Cloudflare Worker license service at `https://soonai-license.soonai-2026.workers.dev`. It permits up to three activated devices per key. Both the Python CLI and Node CLI expose `soonai license activate`, `soonai license status`, and `soonai license deactivate`. The gate remains opt-in until the HTTPS endpoint is verified and a real license has been tested. Licensing discourages casual sharing in the official clients; it cannot prevent users from copying or modifying public MIT-licensed source. See [license-service/README.md](license-service/README.md).
 
 ## Binary / desktop launch
 

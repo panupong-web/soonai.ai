@@ -2,9 +2,10 @@ name = "soonai-license"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 workers_dev = true
+preview_urls = false
 
 [[d1_databases]]
 binding = "LICENSES"
 database_name = "soonai-licenses"
-database_id = "00000000-0000-0000-0000-000000000001"
+database_id = "e885edcb-9dfe-4df5-8242-290768065a53"
 migrations_dir = "migrations"
