@@ -38,6 +38,14 @@ jobs:
           npm ci
           npm audit --audit-level=moderate
 
+      - name: ตรวจ license service dependencies
+        working-directory: license-service
+        run: |
+          npm ci
+          npm audit --audit-level=moderate
+          node --check src/index.js
+          node --check tests/integration.mjs
+
       - name: ตรวจ SHA-256 ของ EXE
         shell: pwsh
         run: |

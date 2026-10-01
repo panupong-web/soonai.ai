@@ -1,18 +1,21 @@
 {
-  "version": "2.33.0",
+  "version": "2.34.0",
   "url": "https://github.com/panupong-web/soonai.ai/commits/main",
-  "notes": "เสริมการป้องกันข้อมูล datacenter, ตรวจ dependency และไฟล์ EXE, พร้อมปรับปรุงตัวสร้าง binary",
+  "notes": "เพิ่ม optional license service จำกัดการเปิดใช้ 3 เครื่องต่อ license พร้อม Cloudflare Worker และ CLI commands",
   "security": [
     "อัปเดตผ่าน HTTPS จากแหล่ง GitHub ที่กำหนดเท่านั้น",
     "เข้ารหัส datacenter token และปิดการแสดง token ใน CLI",
-    "เพิ่ม secret scan ใน CI และปฏิเสธการบันทึก credential เป็น plaintext เมื่อเข้ารหัสล้มเหลว"
+    "license key รับแบบซ่อน, Worker เก็บเฉพาะ hash และ session ใช้ DPAPI บน Windows",
+    "license gate ปิดเป็นค่าเริ่มต้นจนกว่าเจ้าของจะ deploy service"
   ],
   "performance": [
     "เปลี่ยนไปใช้ maintained executable packager และตรวจ dependency ด้วย npm audit",
-    "ตรวจ SHA-256 และ smoke test ของไฟล์ EXE ใน CI"
+    "Worker ตรวจ activation ได้โดยไม่ส่ง prompt, source files หรือ API provider keys",
+    "เพิ่ม integration test สำหรับจำนวนเครื่อง, validate และ revoke"
   ],
   "stability": [
     "แก้การถอดรหัส token และรายงานชัดเจนเมื่อ encryption key เสียหรือหาย",
-    "เพิ่ม checksum gate และ secret scan ที่ fail เมื่อ scanner ทำงานผิดพลาด"
+    "เพิ่ม Cloudflare D1 schema, revoke endpoint และ offline grace 72 ชั่วโมง",
+    "ปรับ service setup ให้ไม่ถาม license key ก่อนมี HTTPS endpoint"
   ]
 }

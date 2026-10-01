@@ -1,0 +1,16 @@
+{
+  "name": "soonai-license-service",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "db:create": "wrangler d1 create soonai-licenses",
+    "db:migrate:local": "wrangler d1 migrations apply soonai-licenses --local",
+    "db:migrate:remote": "wrangler d1 migrations apply soonai-licenses --remote",
+    "deploy": "wrangler deploy",
+    "test:integration": "node tests/integration.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.145.0"
+  }
+}

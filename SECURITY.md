@@ -10,6 +10,8 @@ Datacenter tokens are encrypted at rest with AES-256-GCM, but the encryption key
 
 Automatic updates and installers download code from the project's GitHub repository over HTTPS. Review the source and release history before installing. Do not run an installer copied from an untrusted source.
 
+The optional license service is an abuse-control mechanism for the official Python and Node clients, not DRM. A user can modify public MIT-licensed source and remove a local check. It validates device entitlements only; it does not host SoonAI's model logic or receive prompts/files. Do not claim that this prevents copying. Deployment and production activation require the owner's Cloudflare account, HTTPS Worker URL, D1 setup, and private admin secret.
+
 ## Reporting a vulnerability
 
 Please report suspected vulnerabilities through GitHub's private vulnerability reporting for this repository when available. Include the affected version, reproduction steps, and impact. Do not include live API keys or credentials in the report; revoke and rotate any exposed secret immediately.

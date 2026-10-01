@@ -6,6 +6,8 @@ __pycache__/
 venv/
 
 node_modules/
+license-service/.wrangler/
+license-service/.dev.vars
 
 # เครื่องมือพัฒนา (ก็อปปี้ติดตั้งในเครื่อง ไม่ต้อง commit)
 .pytest_cache/

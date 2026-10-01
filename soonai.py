@@ -376,7 +376,7 @@ SKILL_STATE_FILE = (Path(os.environ["SOONAI_SKILL_STATE"]) if os.environ.get("SO
                     else DATA_DIR / "skills_state.json")   # ทับด้วย env ได้ (ทดสอบ/ซิงก์ความจำ)
 SESSIONS_DIR = DATA_DIR / "sessions"
 MAX_STAFF = 5
-VERSION = "2.33.0"
+VERSION = "2.34.0"
 DEFAULT_SYSTEM = "คุณคือผู้ช่วย AI ภาคภาษาไทย ตอบกระชับ ชัดเจน"
 # กฎจัดการข้อความกำกวม/ต้านคำตอบมั่ว (แชทปกติ + agent + ทีม) — เคสจริงที่พบ:
 # ผู้ใช้พิมพ์สั้น ๆ ว่า "ใช้ mcp ดิ" แล้วโมเดลเดาเป็น Roblox พร้อมอ้างพาธ
@@ -7085,6 +7085,47 @@ def cmd_status(args, keys, cfg):
         console.print(f"local {name}: {'[green]ONLINE[/green]' if ok else '[red]offline[/red]'}")
 
 
+def cmd_license(args, cfg):
+    """Activate, check, or release this installation's server-side license seat."""
+    import getpass
+    import soonai_license as license_client
+
+    if args.action == "activate":
+        try:
+            license_client.service_url(cfg)
+        except Exception as exc:
+            console.print(f"[yellow]{exc}[/yellow]")
+            return 1
+        try:
+            key = getpass.getpass("SoonAI license key: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n[yellow]ยกเลิกการเปิดใช้งาน[/yellow]")
+            return 130
+        if not key:
+            console.print("[yellow]ไม่ได้ใส่ license key[/yellow]")
+            return 1
+        try:
+            state = license_client.activate(cfg, key)
+        except Exception as exc:
+            console.print(f"[red]เปิดใช้งานไม่สำเร็จ: {exc}[/red]")
+            return 1
+        console.print(f"[green]เปิดใช้งานเครื่องนี้แล้ว ({state.get('max_devices', 3)} เครื่องต่อ license)[/green]")
+        return 0
+
+    if args.action == "deactivate":
+        try:
+            license_client.deactivate(cfg)
+        except Exception as exc:
+            console.print(f"[red]ปิดใช้งานไม่สำเร็จ: {exc}[/red]")
+            return 1
+        console.print("[green]ปล่อย license seat ของเครื่องนี้แล้ว[/green]")
+        return 0
+
+    active, message = license_client.status(cfg)
+    console.print(f"[green]{message}[/green]" if active else f"[yellow]{message}[/yellow]")
+    return 0 if active else 1
+
+
 def _ask_seconds(label, default, lo, hi):
     """ถามค่าวินาทีใน setup: Enter/ค่าเดิม = คงไว้ · ผิดรูป/นอกช่วง = ไม่แก้ (คืน None)"""
     try:
@@ -8467,6 +8508,10 @@ def build_parser():
     p = sub.add_parser("test", help="รันเทสต์อัตโนมัติ")
     p.add_argument("path", nargs="?", default=".", help="โฟลเดอร์เทสต์")
 
+    p = sub.add_parser("license", help="เปิดใช้/ตรวจสอบ/ปล่อย license ของเครื่องนี้")
+    p.add_argument("action", nargs="?", choices=["activate", "status", "deactivate"],
+                   default="status")
+
     return ap
 
 
@@ -8483,6 +8528,21 @@ def main(argv=None):
     args = ap.parse_args(argv)
     AGENT_MAX_STEPS = getattr(args, "max_steps", None)
     set_term_title("soonaiTH")
+    if args.cmd == "license":
+        return cmd_license(args, cfg)
+    license_required = (os.environ.get("SOONAI_LICENSE_REQUIRED", "").strip().lower()
+                        in ("1", "true", "yes", "on")
+                        or bool(cfg.get("license_required")))
+    if license_required and args.cmd not in ("status", "update", "help"):
+        try:
+            import soonai_license as license_client
+            licensed, message = license_client.status(cfg)
+        except Exception as exc:
+            licensed, message = False, str(exc)
+        if not licensed:
+            console.print(f"[yellow]{message}[/yellow]")
+            console.print("เปิดใช้ด้วย: [bold]soonai license activate[/bold]")
+            return 1
     if not args.cmd:
         return cmd_chat(argparse.Namespace(
             provider=args.provider, model=args.model,

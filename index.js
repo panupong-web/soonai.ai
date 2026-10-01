@@ -12,10 +12,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const APP_NAME = 'soonai';
-const APP_VERSION = '1.0.1';
+const APP_VERSION = '1.0.2';
 const DEFAULT_CONFIG_NAME = '.soonai.json';
 const DATACENTER_CONFIG_PATH = path.join(os.homedir(), '.soonai', 'datacenter.json');
 const DATACENTER_KEY_PATH = path.join(os.homedir(), '.soonai', '.datacenter.key');
+const LICENSE_STATE_PATH = path.join(os.homedir(), '.soonai', 'node-license.json');
 const LOCAL_MODEL_ROOT = path.join(os.homedir(), 'soonai-models');
 
 function printHelp() {
@@ -33,6 +34,7 @@ Commands:
   doctor               Check environment and CLI readiness
   config               Show or manage config values
   datacenter           Configure a real datacenter connection profile
+  license              Activate, inspect, or release a license seat
   model                Create and manage a custom local AI model project
   train                Train a custom model locally or on datacenter infrastructure
   help                 Show this help message
@@ -46,6 +48,7 @@ Examples:
   soonai doctor
   soonai config
   soonai /datacenter
+  soonai license activate
   soonai model init my-model
   soonai train --model my-model --cluster local
 
@@ -986,6 +989,164 @@ function publicDatacenterConfig(config) {
   return { ...config, token: config.token ? '[stored securely]' : '' };
 }
 
+function licenseServiceUrl() {
+  const value = String(process.env.SOONAI_LICENSE_API_URL || '').trim().replace(/\/$/u, '');
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error('License service is not configured. Set SOONAI_LICENSE_API_URL after deploying the Worker.');
+  }
+  const localHttp = parsed.protocol === 'http:' && ['127.0.0.1', 'localhost', '::1'].includes(parsed.hostname);
+  if (parsed.protocol !== 'https:' && !localHttp) {
+    throw new Error('The license service URL must use HTTPS.');
+  }
+  return value;
+}
+
+function readLicenseState() {
+  if (!fs.existsSync(LICENSE_STATE_PATH)) return {};
+  const state = JSON.parse(fs.readFileSync(LICENSE_STATE_PATH, 'utf8'));
+  if (state.sessionToken) state.sessionToken = unprotectDatacenterToken(state.sessionToken);
+  return state;
+}
+
+function writeLicenseState(state) {
+  ensureDir(path.dirname(LICENSE_STATE_PATH));
+  const saved = { ...state };
+  if (saved.sessionToken) saved.sessionToken = protectDatacenterToken(saved.sessionToken);
+  fs.writeFileSync(LICENSE_STATE_PATH, JSON.stringify(saved, null, 2) + '\n', {
+    encoding: 'utf8',
+    mode: 0o600
+  });
+  if (process.platform !== 'win32') fs.chmodSync(LICENSE_STATE_PATH, 0o600);
+}
+
+async function requestLicense(route, body, sessionToken = '') {
+  const headers = { 'content-type': 'application/json' };
+  if (sessionToken) headers.authorization = `Bearer ${sessionToken}`;
+  const response = await fetch(`${licenseServiceUrl()}${route}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10000)
+  });
+  const payload = await response.json().catch(() => ({}));
+  return { response, payload };
+}
+
+async function nodeLicenseStatus() {
+  const state = readLicenseState();
+  if (!state.sessionToken) return { valid: false, message: 'This device is not activated.' };
+  try {
+    const { response, payload } = await requestLicense('/v1/validate', {}, state.sessionToken);
+    if (response.ok && payload.valid === true) {
+      state.lastValidated = Date.now();
+      writeLicenseState(state);
+      return { valid: true, message: 'License active.' };
+    }
+    if (response.status === 401 || response.status === 403) {
+      return { valid: false, message: payload.error || 'License is invalid or revoked.' };
+    }
+    throw new Error(payload.error || `License service returned HTTP ${response.status}.`);
+  } catch (error) {
+    const elapsed = Date.now() - Number(state.lastValidated || 0);
+    if (elapsed > 0 && elapsed <= 72 * 60 * 60 * 1000) {
+      return { valid: true, message: 'License active in offline grace period.' };
+    }
+    return { valid: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function promptLicenseKey() {
+  if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== 'function') {
+    return Promise.reject(new Error('License activation requires an interactive terminal.'));
+  }
+  return new Promise((resolve, reject) => {
+    const input = process.stdin;
+    readline.emitKeypressEvents(input);
+    const oldRaw = Boolean(input.isRaw);
+    let value = '';
+    const cleanup = () => {
+      input.removeListener('keypress', onKeypress);
+      input.setRawMode(oldRaw);
+      input.pause();
+      process.stdout.write('\n');
+    };
+    const onKeypress = (text, key = {}) => {
+      if (key.ctrl && key.name === 'c') {
+        cleanup();
+        reject(new Error('Activation cancelled.'));
+      } else if (key.name === 'return' || key.name === 'enter') {
+        cleanup();
+        resolve(value.trim());
+      } else if (key.name === 'backspace') {
+        if (value.length) {
+          value = value.slice(0, -1);
+          process.stdout.write('\b \b');
+        }
+      } else if (text && !key.ctrl && !key.meta) {
+        value += text;
+        process.stdout.write('*'.repeat(text.length));
+      }
+    };
+    process.stdout.write('SoonAI license key: ');
+    input.setRawMode(true);
+    input.resume();
+    input.on('keypress', onKeypress);
+  });
+}
+
+async function commandLicense(args) {
+  const action = args[0] || 'status';
+  if (action === 'activate') {
+    try {
+      licenseServiceUrl();
+      const key = await promptLicenseKey();
+      if (!key) throw new Error('No license key was entered.');
+      const state = readLicenseState();
+      const deviceId = state.deviceId || `${crypto.randomUUID()}${crypto.randomUUID().replaceAll('-', '')}`;
+      const { response, payload } = await requestLicense('/v1/activate', {
+        license_key: key,
+        device_id: deviceId
+      });
+      if (!response.ok || !payload.session_token) {
+        throw new Error(payload.error || `Activation failed with HTTP ${response.status}.`);
+      }
+      writeLicenseState({ deviceId, sessionToken: payload.session_token, lastValidated: Date.now() });
+      console.log(`License activated for this device (maximum ${payload.max_devices || 3} devices).`);
+      return 0;
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
+
+  if (action === 'deactivate') {
+    try {
+      const state = readLicenseState();
+      if (state.sessionToken) {
+        const { response } = await requestLicense('/v1/deactivate', {}, state.sessionToken);
+        if (!response.ok && response.status !== 401) throw new Error('Unable to deactivate this device.');
+      }
+      writeLicenseState({ deviceId: state.deviceId || '' });
+      console.log('License seat released for this device.');
+      return 0;
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
+
+  if (action !== 'status') {
+    console.error('Usage: soonai license <activate|status|deactivate>');
+    return 1;
+  }
+  const status = await nodeLicenseStatus();
+  console.log(status.message);
+  return status.valid ? 0 : 1;
+}
+
 function showDatacenterHelp() {
   console.log(`
 Datacenter configuration for SoonAI
@@ -1191,8 +1352,27 @@ async function main() {
       showDatacenterHelp();
       return 0;
     }
+    if (commandName === 'license') {
+      console.log('Usage: soonai license <activate|status|deactivate>');
+      return 0;
+    }
     printHelp();
     return 0;
+  }
+
+  if (commandName === 'license') {
+    return commandLicense(parsed.values);
+  }
+
+  const licenseRequired = ['1', 'true', 'yes', 'on'].includes(
+    String(process.env.SOONAI_LICENSE_REQUIRED || '').trim().toLowerCase()
+  );
+  if (licenseRequired && !['help', 'version', 'status'].includes(commandName)) {
+    const licenseStatus = await nodeLicenseStatus();
+    if (!licenseStatus.valid) {
+      console.error(`${licenseStatus.message}\nActivate with: soonai license activate`);
+      return 1;
+    }
   }
 
   switch (commandName) {
